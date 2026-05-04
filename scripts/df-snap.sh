@@ -73,13 +73,18 @@ TIMEOUT="${DF_SNAP_TIMEOUT:-5}"
 # AppleScript: find a window of process "DragonFruit" whose title contains
 # "DragonFruit" (excludes future detached tooling) and whose width > 800
 # (excludes the 360x280 splashscreen). Returns "x,y,w,h" or empty string.
+# DragonFruit's process name differs by build mode:
+#   - Production .app bundle: "DragonFruit"
+#   - npm run tauri:dev: "dragonfruit-desktop" (cargo binary name)
+# Both scripts target either name.
 read_main_window_geometry() {
     osascript <<'APPLESCRIPT' 2>/dev/null || true
 tell application "System Events"
-    if not (exists (first process whose name is "DragonFruit")) then
+    set procs to (every process whose name is "DragonFruit" or name is "dragonfruit-desktop")
+    if (count of procs) is 0 then
         return ""
     end if
-    tell (first process whose name is "DragonFruit")
+    tell (item 1 of procs)
         repeat with w in windows
             try
                 set s to size of w
@@ -99,11 +104,12 @@ APPLESCRIPT
 list_windows() {
     osascript <<'APPLESCRIPT' 2>/dev/null || true
 tell application "System Events"
-    if not (exists (first process whose name is "DragonFruit")) then
+    set procs to (every process whose name is "DragonFruit" or name is "dragonfruit-desktop")
+    if (count of procs) is 0 then
         return "(DragonFruit not running)"
     end if
     set out to ""
-    tell (first process whose name is "DragonFruit")
+    tell (item 1 of procs)
         repeat with w in windows
             try
                 set p to position of w
@@ -125,7 +131,7 @@ fi
 
 # Confirm DragonFruit process exists at all (so we can return exit 2 distinctly
 # from "process up but main window not yet spawned").
-if ! pgrep -x DragonFruit >/dev/null 2>&1; then
+if ! pgrep -x DragonFruit >/dev/null 2>&1 && ! pgrep -x dragonfruit-desktop >/dev/null 2>&1; then
     log "DragonFruit is not running. Start with: npm run tauri:dev"
     exit 2
 fi
@@ -159,6 +165,10 @@ if [[ ! -s "$OUTPUT_PATH" ]]; then
     log "screencapture produced no output at $OUTPUT_PATH"
     exit 4
 fi
+
+# umask only governs newly created files; if OUTPUT_PATH already existed with
+# looser perms, screencapture preserves them. Force 0600 idempotently.
+chmod 0600 "$OUTPUT_PATH"
 
 # Print only the absolute path on stdout so callers can `path=$(df-snap.sh)`.
 ABS_PATH="$(cd "$(dirname "$OUTPUT_PATH")" && pwd)/$(basename "$OUTPUT_PATH")"

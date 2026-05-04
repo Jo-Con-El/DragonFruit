@@ -63,11 +63,22 @@ To drive the UI:
 
 ```
 scripts/df-input.sh click 240 120
-scripts/df-input.sh key cmd+,
+scripts/df-input.sh key cmd+s
 scripts/df-input.sh type "search term"
 ```
 
 Re-run `df-snap.sh` after each input op to verify the outcome.
+
+### Key syntax
+
+- Chords: `cmd+s`, `shift+esc`, `ctrl+alt+a`, `fn+f1`. Modifiers from {cmd, alt, ctrl, shift, fn}.
+- Sequences: `a,b,c` (no modifiers — press a, then b, then c).
+- Cannot mix `+` and `,` in a single combo.
+- Punctuation chords (e.g. cmd+,) are not supported via `key` in v1; use `type` for literal punctuation, or trigger the same action through a menu click.
+
+### Drags
+
+`df-input.sh drag X1 Y1 X2 Y2` emits an interpolated stream of pointermove events between the start and end points so that UIs requiring a drag (Three.js OrbitControls in the 3D viewport) register the gesture as a drag rather than a click.
 
 ## Coordinate frame
 
@@ -78,7 +89,7 @@ On multi-monitor setups, coordinates are global desktop-space — the values you
 ## Limitations
 
 - macOS only.
-- Single DragonFruit instance assumed; the scripts target the first window of the `DragonFruit` process whose title contains "DragonFruit" and whose width is greater than 800 (excludes the splashscreen).
+- Single DragonFruit instance assumed. The scripts target the running process under either name (`DragonFruit` for the production .app bundle, `dragonfruit-desktop` for the cargo dev binary used by `npm run tauri:dev`) and pick the first window whose title contains "DragonFruit" and whose width is greater than 800 (excludes the splashscreen).
 - `df-input.sh` activates the DragonFruit window before each op, which steals focus. Acceptable for an agent loop, awkward if a human is using another window in parallel.
 - Not a stand-in for production parity testing.
 
@@ -90,8 +101,8 @@ On multi-monitor setups, coordinates are global desktop-space — the values you
 # Snap before
 scripts/df-snap.sh /tmp/before.png
 
-# Open a model and trigger rotate mode (cmd+R or whatever the binding is)
-scripts/df-input.sh key cmd+r
+# Open a model and trigger rotate mode (use the actual binding from your build)
+scripts/df-input.sh key r
 
 # Snap after — read the PNG and confirm the tick marks render
 scripts/df-snap.sh /tmp/after.png
