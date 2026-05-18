@@ -20,6 +20,27 @@ type IslandOverlayControlsProps = {
   // Support coverage halo toggle (step 10).
   showSupportVolumeHalo?: boolean;
   onShowSupportVolumeHaloChange?: (show: boolean) => void;
+  // Island column highlight + overhang highlight (SoftClay shader path).
+  showIslands?: boolean;
+  onShowIslandsChange?: (show: boolean) => void;
+  islandColor?: string;
+  onIslandColorChange?: (color: string) => void;
+  islandIntensity?: number;
+  onIslandIntensityChange?: (v: number) => void;
+  islandRadiusFactor?: number;
+  onIslandRadiusFactorChange?: (v: number) => void;
+  islandColumnHeight?: number;
+  onIslandColumnHeightChange?: (v: number) => void;
+  showOverhang?: boolean;
+  onShowOverhangChange?: (show: boolean) => void;
+  overhangColor?: string;
+  onOverhangColorChange?: (color: string) => void;
+  overhangAngleDeg?: number;
+  onOverhangAngleDegChange?: (v: number) => void;
+  overhangIntensity?: number;
+  onOverhangIntensityChange?: (v: number) => void;
+  overhangProximityMm?: number;
+  onOverhangProximityMmChange?: (v: number) => void;
 };
 
 /**
@@ -46,6 +67,26 @@ export function IslandOverlayControls({
   onHaloIntensityChange,
   showSupportVolumeHalo = false,
   onShowSupportVolumeHaloChange,
+  showIslands = true,
+  onShowIslandsChange,
+  islandColor = '#FF6B00',
+  onIslandColorChange,
+  islandIntensity = 0.85,
+  onIslandIntensityChange,
+  islandRadiusFactor = 3.0,
+  onIslandRadiusFactorChange,
+  islandColumnHeight = 6.0,
+  onIslandColumnHeightChange,
+  showOverhang = true,
+  onShowOverhangChange,
+  overhangColor = '#FF1744',
+  onOverhangColorChange,
+  overhangAngleDeg = 45,
+  onOverhangAngleDegChange,
+  overhangIntensity = 0.7,
+  onOverhangIntensityChange,
+  overhangProximityMm = 8.0,
+  onOverhangProximityMmChange,
 }: IslandOverlayControlsProps) {
   const [expanded, setExpanded] = useState(enabled);
   const [advancedExpanded, setAdvancedExpanded] = useState(false);
@@ -155,6 +196,121 @@ export function IslandOverlayControls({
               />
               <span>Show support coverage</span>
             </label>
+          </div>
+
+          {/* Islands & Overhangs — SoftClay per-pixel shader path. */}
+          <div
+            className="pt-2.5 mt-1.5"
+            style={{ borderTop: '1px solid var(--border-subtle)' }}
+          >
+            <div className="ui-meta mb-1.5" style={{ color: 'var(--text-strong)' }}>
+              Islands &amp; Overhangs
+            </div>
+
+            <label className="ui-meta flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                type="checkbox"
+                checked={showIslands}
+                onChange={(e) => onShowIslandsChange?.(e.target.checked)}
+              />
+              <span>Show island columns</span>
+            </label>
+
+            {showIslands && (
+              <div className="space-y-2 pl-5 mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="ui-meta" style={{ minWidth: 70 }}>Color</span>
+                  <input
+                    type="color"
+                    value={islandColor}
+                    onChange={(e) => onIslandColorChange?.(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="ui-meta" style={{ minWidth: 70 }}>Intensity</span>
+                  <input
+                    type="range" min={0} max={1} step={0.01}
+                    value={islandIntensity}
+                    onChange={(e) => onIslandIntensityChange?.(parseFloat(e.target.value))}
+                    style={{ flex: 1 }}
+                  />
+                  <span className="ui-meta" style={{ minWidth: 32, textAlign: 'right' }}>
+                    {Math.round(islandIntensity * 100)}%
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="ui-meta" style={{ minWidth: 70 }}>Radius ×</span>
+                  <NumberInput
+                    value={islandRadiusFactor}
+                    onChange={(v) => onIslandRadiusFactorChange?.(v)}
+                    step={0.1}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="ui-meta" style={{ minWidth: 70 }}>Col height</span>
+                  <NumberInput
+                    value={islandColumnHeight}
+                    onChange={(v) => onIslandColumnHeightChange?.(v)}
+                    step={0.5}
+                  />
+                </div>
+              </div>
+            )}
+
+            <label className="ui-meta flex items-center gap-2 cursor-pointer mb-2">
+              <input
+                type="checkbox"
+                checked={showOverhang}
+                onChange={(e) => onShowOverhangChange?.(e.target.checked)}
+              />
+              <span>Show overhang (near islands only)</span>
+            </label>
+
+            {showOverhang && (
+              <div className="space-y-2 pl-5">
+                <div className="flex items-center gap-2">
+                  <span className="ui-meta" style={{ minWidth: 70 }}>Color</span>
+                  <input
+                    type="color"
+                    value={overhangColor}
+                    onChange={(e) => onOverhangColorChange?.(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="ui-meta" style={{ minWidth: 70 }}>Angle</span>
+                  <input
+                    type="range" min={10} max={80} step={1}
+                    value={overhangAngleDeg}
+                    onChange={(e) => onOverhangAngleDegChange?.(parseFloat(e.target.value))}
+                    style={{ flex: 1 }}
+                  />
+                  <span className="ui-meta" style={{ minWidth: 32, textAlign: 'right' }}>
+                    {overhangAngleDeg}°
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="ui-meta" style={{ minWidth: 70 }}>Intensity</span>
+                  <input
+                    type="range" min={0} max={1} step={0.01}
+                    value={overhangIntensity}
+                    onChange={(e) => onOverhangIntensityChange?.(parseFloat(e.target.value))}
+                    style={{ flex: 1 }}
+                  />
+                  <span className="ui-meta" style={{ minWidth: 32, textAlign: 'right' }}>
+                    {Math.round(overhangIntensity * 100)}%
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="ui-meta" style={{ minWidth: 70 }}>Proximity</span>
+                  <NumberInput
+                    value={overhangProximityMm}
+                    onChange={(v) => onOverhangProximityMmChange?.(v)}
+                    step={0.5}
+                  />
+                  <span className="ui-meta">mm</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Advanced disclosure — preserves the legacy painter knobs. */}

@@ -56,6 +56,22 @@ export function useIslandManager({ geom, transform, layerHeightMm }: IslandManag
   const [showSupportVolumeHalo, setShowSupportVolumeHalo] = useState<boolean>(true);
   const [supportVolumeHaloIntensity, setSupportVolumeHaloIntensity] = useState<number>(0.7);
 
+  // Island column highlight (SoftClayMaterial shader path).
+  const [showIslands, setShowIslands] = useState<boolean>(true);
+  // Cyan + yellow chosen to contrast against typical pink/red resin
+  // models (Mag, 2026-05-18). Warm colours muddy against warm models.
+  const [islandColor, setIslandColor] = useState<string>('#00E5FF');
+  const [islandIntensity, setIslandIntensity] = useState<number>(0.85);
+  const [islandRadiusFactor, setIslandRadiusFactor] = useState<number>(3.0);
+  const [islandColumnHeight, setIslandColumnHeight] = useState<number>(6.0);
+
+  // Overhang highlight (only fires near an island marker — problem zones).
+  const [showOverhang, setShowOverhang] = useState<boolean>(true);
+  const [overhangColor, setOverhangColor] = useState<string>('#FFEB3B');
+  const [overhangAngleDeg, setOverhangAngleDeg] = useState<number>(45);
+  const [overhangIntensity, setOverhangIntensity] = useState<number>(0.7);
+  const [overhangProximityMm, setOverhangProximityMm] = useState<number>(8.0);
+
   // Selection State
   const [selectedIslandId, setSelectedIslandId] = useState<number | null>(null);
   const [showMerged, setShowMerged] = useState<boolean>(false);
@@ -239,6 +255,16 @@ export function useIslandManager({ geom, transform, layerHeightMm }: IslandManag
     overlayHaloPulseEnabled, setOverlayHaloPulseEnabled,
     showSupportVolumeHalo, setShowSupportVolumeHalo,
     supportVolumeHaloIntensity, setSupportVolumeHaloIntensity,
+    showIslands, setShowIslands,
+    islandColor, setIslandColor,
+    islandIntensity, setIslandIntensity,
+    islandRadiusFactor, setIslandRadiusFactor,
+    islandColumnHeight, setIslandColumnHeight,
+    showOverhang, setShowOverhang,
+    overhangColor, setOverhangColor,
+    overhangAngleDeg, setOverhangAngleDeg,
+    overhangIntensity, setOverhangIntensity,
+    overhangProximityMm, setOverhangProximityMm,
     selectedIslandId, setSelectedIslandId,
     showMerged, setShowMerged,
     voxelEnabled, setVoxelEnabled,

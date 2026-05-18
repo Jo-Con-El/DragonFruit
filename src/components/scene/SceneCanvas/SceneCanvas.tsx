@@ -12,7 +12,6 @@ import {
   type CrossSectionCapDebugOverrides,
   type CrossSectionStencilCapEntry,
 } from '@/components/scene/CrossSectionStencilCap';
-import { IslandOverlay } from '@/components/scene/IslandOverlay';
 import { IslandVoxelVisualization } from '@/components/scene/IslandVoxelVisualization';
 import { IslandExpansionVisualization } from '@/components/scene/IslandExpansionVisualization';
 import { MeshClassificationRenderer } from '@/components/scene/MeshClassificationRenderer';
@@ -324,6 +323,16 @@ export function SceneCanvas({
   overlayHaloPulseEnabled,
   showSupportVolumeHalo,
   supportVolumeHaloIntensity,
+  showIslands,
+  islandColor,
+  islandIntensity,
+  islandRadiusFactor,
+  islandColumnHeight,
+  showOverhang,
+  overhangColor,
+  overhangAngleDeg,
+  overhangIntensity,
+  overhangProximityMm,
   materialRoughness,
   scanResults,
   layerHeightMm,
@@ -433,6 +442,16 @@ export function SceneCanvas({
   overlayHaloPulseEnabled?: boolean;
   showSupportVolumeHalo?: boolean;
   supportVolumeHaloIntensity?: number;
+  showIslands?: boolean;
+  islandColor?: string;
+  islandIntensity?: number;
+  islandRadiusFactor?: number;
+  islandColumnHeight?: number;
+  showOverhang?: boolean;
+  overhangColor?: string;
+  overhangAngleDeg?: number;
+  overhangIntensity?: number;
+  overhangProximityMm?: number;
   ambientIntensity?: number;
   directionalIntensity?: number;
   headlightIntensity?: number;
@@ -837,6 +856,28 @@ export function SceneCanvas({
     enabled: !!showSupportVolumeHalo,
     modelId: activeModelId,
   });
+
+  // Pack island markers from the Rust scan pipeline into a Float32Array
+  // uniform for SoftClayMaterial's per-pixel island highlight shader.
+  // Mirrors the support-tip packing pattern; skips negative-id debug
+  // markers (weight=0 also skipped by the shader).
+  const MAX_ISLAND_MARKERS_SCENE = 16;
+  const islandMarkerData = React.useMemo(() => {
+    const markers = new Float32Array(MAX_ISLAND_MARKERS_SCENE * 4);
+    if (!islandMarkers || islandMarkers.length === 0) return { markers, count: 0 };
+    let count = 0;
+    for (const m of islandMarkers) {
+      if (count >= MAX_ISLAND_MARKERS_SCENE) break;
+      if (m.id < 0) continue;        // skip debug markers
+      if (m.weight <= 0) continue;   // weight==0 also nothing to render
+      markers[count * 4 + 0] = m.centerX;
+      markers[count * 4 + 1] = m.centerY;
+      markers[count * 4 + 2] = m.baseZ;
+      markers[count * 4 + 3] = m.weight;
+      count += 1;
+    }
+    return { markers, count };
+  }, [islandMarkers]);
 
   const colorActiveModelId = React.useMemo(() => committedActiveModelId, [committedActiveModelId]);
 
@@ -4973,6 +5014,17 @@ export function SceneCanvas({
                       supportCoverageTips={supportCoverageTipData}
                       supportCoverageColor={overlayColor}
                       supportCoverageIntensity={(supportVolumeHaloIntensity ?? 0.7) * (overlayOpacity ?? 1.0)}
+                      islandMarkers={islandMarkerData}
+                      showIslands={showIslands}
+                      islandColor={islandColor}
+                      islandIntensity={islandIntensity}
+                      islandRadiusFactor={islandRadiusFactor}
+                      islandColumnHeight={islandColumnHeight}
+                      showOverhang={showOverhang}
+                      overhangColor={overhangColor}
+                      overhangAngleDeg={overhangAngleDeg}
+                      overhangIntensity={overhangIntensity}
+                      overhangProximityMm={overhangProximityMm}
                       meshRef={meshGroupRefCallback}
                       actualMeshRef={actualMeshRefCallback}
                       materialRoughness={materialRoughness}
@@ -5997,20 +6049,6 @@ export function SceneCanvas({
                   }}
                 />
               )}
-
-              <IslandOverlay
-                markers={islandMarkers ?? []}
-                meshRef={activeActualMeshRef.current}
-                brushRadiusMm={overlayBrushRadius ?? 2}
-                color={overlayColor ?? '#FF0000'}
-                opacity={overlayOpacity ?? 0.5}
-                transform={transform}
-                selectedIslandId={overlaySelectedIslandId}
-                clipLower={clipLower}
-                clipUpper={clipUpper}
-                haloIntensity={overlayHaloIntensity ?? 0.7}
-                haloPulseEnabled={overlayHaloPulseEnabled ?? true}
-              />
 
               <IslandVoxelVisualization
                 scanResults={scanResults ?? null}

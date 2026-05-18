@@ -180,6 +180,17 @@ function StlMeshComponent({
   supportCoverageTips,
   supportCoverageColor,
   supportCoverageIntensity,
+  islandMarkers,
+  showIslands,
+  islandColor,
+  islandIntensity,
+  islandRadiusFactor,
+  islandColumnHeight,
+  showOverhang,
+  overhangColor,
+  overhangAngleDeg,
+  overhangIntensity,
+  overhangProximityMm,
   children,
 }: {
   geometry: THREE.BufferGeometry;
@@ -250,6 +261,17 @@ function StlMeshComponent({
   supportCoverageTips?: import('@/features/shaders/mesh/registry').SupportCoverageTipData;
   supportCoverageColor?: string;
   supportCoverageIntensity?: number;
+  islandMarkers?: import('@/features/shaders/mesh/registry').IslandMarkerData;
+  showIslands?: boolean;
+  islandColor?: string;
+  islandIntensity?: number;
+  islandRadiusFactor?: number;
+  islandColumnHeight?: number;
+  showOverhang?: boolean;
+  overhangColor?: string;
+  overhangAngleDeg?: number;
+  overhangIntensity?: number;
+  overhangProximityMm?: number;
   children?: React.ReactNode;
 }) {
   // Access GPU picking state to detect gizmo hover
@@ -1198,6 +1220,17 @@ if (uDitherAmount > 0.0) {
             supportCoverageTips={supportCoverageTips}
             supportCoverageColor={supportCoverageColor}
             supportCoverageIntensity={supportCoverageIntensity}
+            islandMarkers={islandMarkers}
+            showIslands={showIslands}
+            islandColor={islandColor}
+            islandIntensity={islandIntensity}
+            islandRadiusFactor={islandRadiusFactor}
+            islandColumnHeight={islandColumnHeight}
+            showOverhang={showOverhang}
+            overhangColor={overhangColor}
+            overhangAngleDeg={overhangAngleDeg}
+            overhangIntensity={overhangIntensity}
+            overhangProximityMm={overhangProximityMm}
           />
         )}
       </mesh>

@@ -8,8 +8,8 @@ import { NormalDebugMaterial } from './normalDebug';
 import { WireframeMaterial } from './wireframe';
 import { XrayMaterial } from './xray';
 import { OverhangHeatmapMaterial } from './overhangHeatmap';
-import type { SupportCoverageTipData } from './softClay';
-export type { SupportCoverageTipData } from './softClay';
+import type { SupportCoverageTipData, IslandMarkerData } from './softClay';
+export type { SupportCoverageTipData, IslandMarkerData } from './softClay';
 
 export function MeshShaderMaterial({
   shaderType,
@@ -33,6 +33,17 @@ export function MeshShaderMaterial({
   supportCoverageTips,
   supportCoverageColor,
   supportCoverageIntensity,
+  islandMarkers,
+  showIslands,
+  islandColor,
+  islandIntensity,
+  islandRadiusFactor,
+  islandColumnHeight,
+  showOverhang,
+  overhangColor,
+  overhangAngleDeg,
+  overhangIntensity,
+  overhangProximityMm,
 }: {
   shaderType: MeshShaderType;
   isSelected: boolean;
@@ -58,6 +69,17 @@ export function MeshShaderMaterial({
   supportCoverageTips?: SupportCoverageTipData;
   supportCoverageColor?: string;
   supportCoverageIntensity?: number;
+  islandMarkers?: IslandMarkerData;
+  showIslands?: boolean;
+  islandColor?: string;
+  islandIntensity?: number;
+  islandRadiusFactor?: number;
+  islandColumnHeight?: number;
+  showOverhang?: boolean;
+  overhangColor?: string;
+  overhangAngleDeg?: number;
+  overhangIntensity?: number;
+  overhangProximityMm?: number;
 }) {
   switch (shaderType) {
     case 'flat_unlit':
@@ -177,6 +199,17 @@ export function MeshShaderMaterial({
           supportCoverageTips={supportCoverageTips}
           supportCoverageColor={supportCoverageColor}
           supportCoverageIntensity={supportCoverageIntensity}
+          islandMarkers={islandMarkers}
+          showIslands={showIslands}
+          islandColor={islandColor}
+          islandIntensity={islandIntensity}
+          islandRadiusFactor={islandRadiusFactor}
+          islandColumnHeight={islandColumnHeight}
+          showOverhang={showOverhang}
+          overhangColor={overhangColor}
+          overhangAngleDeg={overhangAngleDeg}
+          overhangIntensity={overhangIntensity}
+          overhangProximityMm={overhangProximityMm}
         />
       );
   }
