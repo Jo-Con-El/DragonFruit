@@ -19,7 +19,7 @@ use crate::types::{
     LayerAreaStatsV3, ProgressCallbackV3, RenderedLayersV3, SliceArtifactV3, SliceJobV3,
     SliceProgressPhaseV3, SliceProgressUpdateV3,
 };
-use crate::{cross_blend, z_blend};
+use crate::zaa;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::collections::{BTreeMap, VecDeque};
@@ -98,19 +98,7 @@ fn validate_job(job: &SliceJobV3) -> Result<(), SlicerV3Error> {
 
 #[inline]
 fn is_vertical_aa_mode(mode: &str) -> bool {
-    mode.trim().eq_ignore_ascii_case("3daa")
-        || mode.trim().eq_ignore_ascii_case("vertical")
-        || mode.trim().eq_ignore_ascii_case("vertical2")
-        || mode.trim().eq_ignore_ascii_case("vertical3")
-        || mode.trim().eq_ignore_ascii_case("crossblend")
-        || mode.trim().eq_ignore_ascii_case("volumetric")
-}
-
-#[inline]
-fn is_cross_blend_mode(mode: &str) -> bool {
-    mode.trim().eq_ignore_ascii_case("vertical3")
-        || mode.trim().eq_ignore_ascii_case("crossblend")
-        || mode.trim().eq_ignore_ascii_case("volumetric")
+    zaa::is_vertical_aa_mode(mode)
 }
 
 #[inline]
@@ -628,7 +616,7 @@ struct PostWorkerTask {
     future_topologies: Vec<BoundedBinaryMask>,
     future_bounds: Vec<TopologyBounds>,
     futures_have_topology: bool,
-    cross_blend_cfg: Option<cross_blend::CrossBlendKernelConfig>,
+    zaa_config: zaa::ZaaKernelConfig,
 }
 
 struct PostProcessedLayer {
@@ -746,25 +734,19 @@ fn process_pending_layer_post(
     futures_have_topology: bool,
     width: usize,
     height: usize,
-    fade_px: u32,
     blur_radius: usize,
     min_aa_alpha_u8: u8,
-    z_blend_min_alpha_u8: u8,
-    has_custom_lut: bool,
-    lut: &[u8; 256],
-    workspace: &mut z_blend::ZBlendWorkspace,
-    cross_blend_cfg: Option<&cross_blend::CrossBlendKernelConfig>,
-    cross_blend_ws: &mut cross_blend::CrossBlendWorkspace,
+    zaa_config: zaa::ZaaKernelConfig,
+    workspace: &mut zaa::ZaaKernelWorkspace,
 ) -> PostProcessedLayer {
     let forward_applied = layer.apply_model_aa && layer.topology_non_empty && futures_have_topology;
-    let effective_look_back = future_topologies.len();
     let mut active_bounds = layer.mask_bounds;
     if layer.backward_applied {
         active_bounds = merge_bounds(active_bounds, layer.backward_seed_bounds);
     }
 
     let mut forward_seed_bounds = None;
-    if forward_applied && effective_look_back > 0 {
+    if forward_applied && !future_topologies.is_empty() {
         forward_seed_bounds = layer.topology_bounds;
         for bounds in future_bounds.iter().copied() {
             forward_seed_bounds = merge_bounds(forward_seed_bounds, bounds);
@@ -772,7 +754,7 @@ fn process_pending_layer_post(
         active_bounds = merge_bounds(active_bounds, forward_seed_bounds);
     }
 
-    if cross_blend_cfg.is_some() {
+    if zaa_config.cross_blend_cfg.is_some() {
         let mut cross_seed_bounds = layer.topology_bounds;
         for bounds in future_bounds.iter().copied() {
             cross_seed_bounds = merge_bounds(cross_seed_bounds, bounds);
@@ -821,86 +803,27 @@ fn process_pending_layer_post(
     let work_height = work_bounds.3 - work_bounds.2 + 1;
     let mut mask = expand_bounded_gray_mask_to_bounds(std::mem::take(&mut layer.mask), work_bounds);
 
-    let mut z_blend_backward_ns_local = 0u64;
-    if layer.backward_applied {
-        let blend_start = std::time::Instant::now();
-        if let Some((min_x, max_x, min_y, max_y)) = layer.backward_seed_bounds {
-            workspace.blend_layer_local_inplace_with_roi(
-                &mut mask,
-                work_bounds,
-                backward_prior_topologies,
-                width,
-                height,
-                fade_px,
-                Some(lut),
-                (min_x, max_x, min_y, max_y),
-            );
-        }
-        z_blend_backward_ns_local = blend_start.elapsed().as_nanos().min(u64::MAX as u128) as u64;
-    }
+    let kernel_stats = zaa::apply_kernel(
+        zaa::ZaaKernelInputs {
+            mask: &mut mask,
+            work_bounds,
+            layer_topology: layer.topology.as_view(),
+            prior_topologies,
+            backward_prior_topologies,
+            future_topologies,
+            backward_applied: layer.backward_applied,
+            backward_seed_bounds: layer.backward_seed_bounds,
+            forward_applied,
+            forward_seed_bounds,
+            width,
+            height,
+        },
+        zaa_config,
+        workspace,
+    );
 
-    let mut z_blend_forward_ns = 0u64;
-    let mut cross_blend_ns = 0u64;
-    let mut cross_blend_touched_pixels = 0u64;
-    let mut cross_blend_contributing_layers = 0u64;
     let mut post_blur_ns = 0u64;
     let mut support_merge_ns = 0u64;
-
-    if forward_applied && effective_look_back > 0 {
-        let blend_start = std::time::Instant::now();
-        if let Some((min_x, max_x, min_y, max_y)) = forward_seed_bounds {
-            workspace.blend_layer_forward_local_inplace_with_roi(
-                &mut mask,
-                work_bounds,
-                layer.topology.as_view(),
-                future_topologies,
-                effective_look_back,
-                width,
-                height,
-                fade_px,
-                Some(lut),
-                (min_x, max_x, min_y, max_y),
-            );
-        }
-        z_blend_forward_ns = blend_start.elapsed().as_nanos().min(u64::MAX as u128) as u64;
-    }
-
-    if let Some(cfg) = cross_blend_cfg {
-        let cross_start = std::time::Instant::now();
-        let mut neighbors: Vec<cross_blend::CrossBlendNeighbor<'_>> =
-            Vec::with_capacity(prior_topologies.len() + future_topologies.len());
-        for (depth, prior) in prior_topologies.iter().enumerate() {
-            neighbors.push(cross_blend::CrossBlendNeighbor {
-                z_offset: -((depth + 1) as i32),
-                // Topology-magnitude occupancy field for volumetric support.
-                mask: *prior,
-                topology: *prior,
-            });
-        }
-        for (depth, future) in future_topologies.iter().enumerate() {
-            neighbors.push(cross_blend::CrossBlendNeighbor {
-                z_offset: (depth + 1) as i32,
-                mask: *future,
-                topology: *future,
-            });
-        }
-        let stats = cross_blend::cross_blend_layer_inplace(
-            cross_blend::CrossBlendLayerInputs {
-                center_mask: &mut mask,
-                center_topology: layer.topology.as_view(),
-                neighbors: &neighbors,
-                origin_x: work_bounds.0,
-                origin_y: work_bounds.2,
-                width: work_width,
-                height: work_height,
-            },
-            *cfg,
-            cross_blend_ws,
-        );
-        cross_blend_ns = cross_start.elapsed().as_nanos().min(u64::MAX as u128) as u64;
-        cross_blend_touched_pixels = stats.touched_pixels as u64;
-        cross_blend_contributing_layers = stats.contributing_layers as u64;
-    }
 
     if should_blur_model {
         let blur_start = std::time::Instant::now();
@@ -925,13 +848,13 @@ fn process_pending_layer_post(
             }
         }
 
-        if !has_custom_lut && (min_aa_alpha_u8 > 0 || z_blend_min_alpha_u8 > 0) {
+        if !zaa_config.has_custom_lut && (min_aa_alpha_u8 > 0 || zaa_config.z_blend_min_alpha_u8 > 0) {
             apply_topology_gated_post_blur_floors_local(
                 &mut mask,
                 work_bounds,
                 layer.topology.as_view(),
                 min_aa_alpha_u8,
-                z_blend_min_alpha_u8,
+                zaa_config.z_blend_min_alpha_u8,
             );
         }
         post_blur_ns = post_blur_ns
@@ -952,11 +875,11 @@ fn process_pending_layer_post(
         layer,
         mask,
         active_bounds: Some(work_bounds),
-        z_blend_backward_ns: z_blend_backward_ns_local,
-        z_blend_forward_ns,
-        cross_blend_ns,
-        cross_blend_touched_pixels,
-        cross_blend_contributing_layers,
+        z_blend_backward_ns: kernel_stats.z_blend_backward_ns,
+        z_blend_forward_ns: kernel_stats.z_blend_forward_ns,
+        cross_blend_ns: kernel_stats.cross_blend_ns,
+        cross_blend_touched_pixels: kernel_stats.cross_blend_touched_pixels,
+        cross_blend_contributing_layers: kernel_stats.cross_blend_contributing_layers,
         post_blur_ns,
         support_merge_ns,
     }
@@ -1046,19 +969,7 @@ fn rasterize_vertical_aa_streaming_v3(
     // can under-utilize CPU when run on a single thread.
     const PARALLEL_SWEEP_PIXEL_THRESHOLD: usize = 8_000_000;
     let use_parallel_sweeps = pixels_per_layer >= PARALLEL_SWEEP_PIXEL_THRESHOLD;
-    let cross_blend_cfg = if is_cross_blend_mode(&job.anti_aliasing_mode) {
-        Some(cross_blend::CrossBlendKernelConfig {
-            window_layers: (job.z_blend_look_back as usize).max(1),
-            z_decay: 0.75,
-            xy_radius_px: (job.z_blend_fade_px.max(1).min(4)) as usize,
-            xy_decay: 1.0,
-            topo_threshold: TOPOLOGY_ALPHA_THRESHOLD,
-            strength: 1.0,
-            max_alpha: 255,
-        })
-    } else {
-        None
-    };
+    let zaa_config = zaa::ZaaKernelConfig::from_job(job);
     let post_threads = choose_3daa_post_threads(width, height, job.total_layers);
     let post_buffer_depth =
         choose_3daa_post_buffer_depth(width, height, job.total_layers, post_threads);
@@ -1074,40 +985,16 @@ fn rasterize_vertical_aa_streaming_v3(
     } else {
         None
     };
-    let look_back = (job.z_blend_look_back as usize).max(1);
-    // Use the physics-calibrated fade distance when auto-fade is enabled.
-    // See `SliceJobV3::effective_z_blend_fade_px` for the derivation.
-    let fade_px = job.effective_z_blend_fade_px();
+    let look_back = zaa_config.look_back;
     let blur_radius = job.blur_brush_radius_px as usize;
     let min_aa_alpha_u8 =
         ((job.minimum_aa_alpha_percent.clamp(0.0, 100.0) / 100.0) * 255.0).round() as u8;
-    // Separate minimum alpha for z-blend gradient pixels.  These live outside
-    // the current layer's binary footprint and must be allowed to taper to 0;
-    // lifting them with the same floor as XY AA pixels causes dimensional
-    // overgrowth and the "wide flat top" stair-step artefact.
-    let z_blend_min_alpha_u8 =
-        ((job.z_blend_minimum_alpha_percent.clamp(0.0, 100.0) / 100.0) * 255.0).round() as u8;
-    let has_custom_lut = job.z_blend_custom_lut.is_some();
-    let lut: [u8; 256] = if let Some(custom) = &job.z_blend_custom_lut {
-        let mut arr = [0u8; 256];
-        for (i, &v) in custom.iter().enumerate().take(256) {
-            arr[i] = v;
-        }
-        arr[0] = 0;
-        arr[255] = 255;
-        arr
-    } else {
-        let z_blend_max_alpha_u8 =
-            ((job.z_blend_max_alpha_percent.clamp(0.0, 100.0) / 100.0) * 255.0).round() as u8;
-        z_blend::make_cure_window_lut(z_blend_min_alpha_u8, z_blend_max_alpha_u8)
-    };
     const TOPOLOGY_ALPHA_THRESHOLD: u8 = 127;
 
     // Lazily allocate consumer-thread post workspaces only if we actually run
     // the non-overlap path. In normal overlap mode, post-processing happens on
     // worker threads and these would otherwise be an unused extra ~884MB at 12K.
-    let mut workspace: Option<z_blend::ZBlendWorkspace> = None;
-    let mut cross_blend_ws: Option<cross_blend::CrossBlendWorkspace> = None;
+    let mut workspace: Option<zaa::ZaaKernelWorkspace> = None;
     let png_layers: Option<Vec<Vec<u8>>> =
         collect_png_layers.then(|| Vec::with_capacity(job.total_layers as usize));
     // When on_processed_mask is provided it owns the processed masks (streaming
@@ -1349,7 +1236,7 @@ fn rasterize_vertical_aa_streaming_v3(
         //   is typically 4–10× smaller than this ceiling.
         // When cross_blend is enabled, +8 bytes/px (accum f32 + weight f32).
         let zblend_bytes_per_px: u64 = 6;
-        let crossblend_bytes_per_px: u64 = if cross_blend_cfg.is_some() { 8 } else { 0 };
+        let crossblend_bytes_per_px: u64 = if zaa_config.cross_blend_cfg.is_some() { 8 } else { 0 };
         let ws_bytes = layer_px.saturating_mul(zblend_bytes_per_px + crossblend_bytes_per_px);
         let ws_mb_per_worker = ws_bytes / 1_000_000;
         let ws_total_mb = ws_mb_per_worker.saturating_mul(expected_workers.max(1) as u64);
@@ -1462,8 +1349,7 @@ fn rasterize_vertical_aa_streaming_v3(
             let done_tx_worker = done_tx.clone();
             let ws_max = Arc::clone(&workspace_max_bytes);
             std::thread::spawn(move || {
-                let mut workspace = z_blend::ZBlendWorkspace::new(width, height);
-                let mut cross_blend_ws = cross_blend::CrossBlendWorkspace::new(width, height);
+                let mut workspace = zaa::ZaaKernelWorkspace::new(width, height);
                 while let Ok(task) = task_rx.recv() {
                     let backward_prior_slices: Vec<BoundedBinaryMaskRef<'_>> = task
                         .backward_prior_topologies
@@ -1483,15 +1369,10 @@ fn rasterize_vertical_aa_streaming_v3(
                         task.futures_have_topology,
                         width,
                         height,
-                        fade_px,
                         blur_radius,
                         min_aa_alpha_u8,
-                        z_blend_min_alpha_u8,
-                        has_custom_lut,
-                        &lut,
+                        task.zaa_config,
                         &mut workspace,
-                        task.cross_blend_cfg.as_ref(),
-                        &mut cross_blend_ws,
                     );
                     out.seq = task.seq;
                     let bytes = workspace.resident_bytes();
@@ -1876,7 +1757,7 @@ fn rasterize_vertical_aa_streaming_v3(
                                         forward_to_encode(
                                             next_done,
                                             &mut emitted_topologies,
-                                            cross_blend_cfg.is_some(),
+                                            zaa_config.keep_emitted_topologies(),
                                             look_back,
                                             &encode_tx,
                                             &z_blend_backward_ns,
@@ -1906,7 +1787,7 @@ fn rasterize_vertical_aa_streaming_v3(
                                     future_topologies,
                                     future_bounds,
                                     futures_have_topology,
-                                    cross_blend_cfg,
+                                    zaa_config,
                                 })
                                 .map_err(|_| {
                                     SlicerV3Error::LayerPreview(
@@ -1946,10 +1827,7 @@ fn rasterize_vertical_aa_streaming_v3(
                                 .take(look_back)
                                 .any(|future| future.topology_non_empty);
                             let workspace = workspace.get_or_insert_with(|| {
-                                z_blend::ZBlendWorkspace::new(width, height)
-                            });
-                            let cross_blend_ws = cross_blend_ws.get_or_insert_with(|| {
-                                cross_blend::CrossBlendWorkspace::new(width, height)
+                                zaa::ZaaKernelWorkspace::new(width, height)
                             });
                             let processed = process_pending_layer_post(
                                 layer,
@@ -1960,20 +1838,15 @@ fn rasterize_vertical_aa_streaming_v3(
                                 futures_have_topology,
                                 width,
                                 height,
-                                fade_px,
                                 blur_radius,
                                 min_aa_alpha_u8,
-                                z_blend_min_alpha_u8,
-                                has_custom_lut,
-                                &lut,
+                                zaa_config,
                                 workspace,
-                                cross_blend_cfg.as_ref(),
-                                cross_blend_ws,
                             );
                             forward_to_encode(
                                 processed,
                                 &mut emitted_topologies,
-                                cross_blend_cfg.is_some(),
+                                zaa_config.keep_emitted_topologies(),
                                 look_back,
                                 &encode_tx,
                                 &z_blend_backward_ns,
@@ -2076,7 +1949,7 @@ fn rasterize_vertical_aa_streaming_v3(
                             future_topologies,
                             future_bounds,
                             futures_have_topology,
-                            cross_blend_cfg,
+                                    zaa_config,
                         })
                         .map_err(|_| {
                             SlicerV3Error::LayerPreview(
@@ -2104,7 +1977,7 @@ fn rasterize_vertical_aa_streaming_v3(
                                 forward_to_encode(
                                     next_done,
                                     &mut emitted_topologies,
-                                    cross_blend_cfg.is_some(),
+                                    zaa_config.keep_emitted_topologies(),
                                     look_back,
                                     &encode_tx,
                                     &z_blend_backward_ns,
@@ -2145,10 +2018,7 @@ fn rasterize_vertical_aa_streaming_v3(
                         .take(look_back)
                         .any(|future| future.topology_non_empty);
                     let workspace = workspace
-                        .get_or_insert_with(|| z_blend::ZBlendWorkspace::new(width, height));
-                    let cross_blend_ws = cross_blend_ws.get_or_insert_with(|| {
-                        cross_blend::CrossBlendWorkspace::new(width, height)
-                    });
+                        .get_or_insert_with(|| zaa::ZaaKernelWorkspace::new(width, height));
                     let processed = process_pending_layer_post(
                         layer,
                         &prior_topologies,
@@ -2158,20 +2028,15 @@ fn rasterize_vertical_aa_streaming_v3(
                         futures_have_topology,
                         width,
                         height,
-                        fade_px,
                         blur_radius,
                         min_aa_alpha_u8,
-                        z_blend_min_alpha_u8,
-                        has_custom_lut,
-                        &lut,
+                        zaa_config,
                         workspace,
-                        cross_blend_cfg.as_ref(),
-                        cross_blend_ws,
                     );
                     forward_to_encode(
                         processed,
                         &mut emitted_topologies,
-                        cross_blend_cfg.is_some(),
+                        zaa_config.keep_emitted_topologies(),
                         look_back,
                         &encode_tx,
                         &z_blend_backward_ns,
@@ -2200,7 +2065,7 @@ fn rasterize_vertical_aa_streaming_v3(
                         forward_to_encode(
                             next_done,
                             &mut emitted_topologies,
-                            cross_blend_cfg.is_some(),
+                            zaa_config.keep_emitted_topologies(),
                             look_back,
                             &encode_tx,
                             &z_blend_backward_ns,
@@ -2803,30 +2668,15 @@ pub fn slice_and_rasterize_3daa_rle_v3(
     raster_job.blur_brush_radius_px = 0;
     raster_job.minimum_aa_alpha_percent = 0.0;
 
-    // 3DAA blend parameters extracted from the original job.
-    let look_back = (job.z_blend_look_back as usize).max(1);
-    // See `SliceJobV3::effective_z_blend_fade_px` for the derivation.
-    let fade_px = job.effective_z_blend_fade_px();
+    // Shared ZAA configuration so the RLE path stays aligned with the main
+    // post-worker path as new kernels are introduced.
+    let zaa_config = zaa::ZaaKernelConfig::from_job(job);
+    let look_back = zaa_config.look_back;
     // Optional post-blur only (user-controlled). 3DAA itself is handled by the
     // 2-D distance blend in `blend_3daa_rle`.
     let blur_radius = job.blur_brush_radius_px as usize;
     let min_alpha_u8 =
         ((job.minimum_aa_alpha_percent.clamp(0.0, 100.0) / 100.0) * 255.0).round() as u8;
-    let z_blend_min_alpha_u8 =
-        ((job.z_blend_minimum_alpha_percent.clamp(0.0, 100.0) / 100.0) * 255.0).round() as u8;
-    let lut: [u8; 256] = if let Some(custom) = &job.z_blend_custom_lut {
-        let mut arr = [0u8; 256];
-        for (i, &v) in custom.iter().enumerate().take(256) {
-            arr[i] = v;
-        }
-        arr[0] = 0;
-        arr[255] = 255;
-        arr
-    } else {
-        let z_blend_max_alpha_u8 =
-            ((job.z_blend_max_alpha_percent.clamp(0.0, 100.0) / 100.0) * 255.0).round() as u8;
-        z_blend::make_cure_window_lut(z_blend_min_alpha_u8, z_blend_max_alpha_u8)
-    };
 
     let mut triangles = parse_triangles(&job.triangles_xyz);
     project_triangles_inplace(&mut triangles, &raster_job);
@@ -2878,8 +2728,8 @@ pub fn slice_and_rasterize_3daa_rle_v3(
                 &future_refs,
                 width,
                 height,
-                fade_px,
-                Some(&lut),
+                zaa_config.fade_px,
+                Some(&zaa_config.lut),
             );
 
             let blurred = if blur_radius > 0 {

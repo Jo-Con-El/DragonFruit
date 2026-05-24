@@ -23,6 +23,7 @@ pub mod rle;
 pub mod rle_3daa;
 pub mod types;
 pub mod z_blend;
+pub mod zaa;
 
 pub use engine::{slice_with_progress_v3, SlicerV3Error};
 pub use metrics::SlicingPerfV3;
