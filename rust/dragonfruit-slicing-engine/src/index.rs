@@ -197,7 +197,9 @@ fn build_zbin_index_from_ranges(
     for tri in triangles.iter() {
         let (tri_z_min, tri_z_max) = match sampling_span {
             LayerSamplingSpan::CenterOnly => (tri.z_min, tri.z_max),
-            LayerSamplingSpan::FullLayer => (tri.z_min - layer_height_mm, tri.z_max + layer_height_mm),
+            LayerSamplingSpan::FullLayer => {
+                (tri.z_min - layer_height_mm, tri.z_max + layer_height_mm)
+            }
         };
         let b_start = ((tri_z_min - z_min_model) / bin_height)
             .floor()
@@ -218,7 +220,9 @@ fn build_zbin_index_from_ranges(
     for (idx, tri) in triangles.iter().enumerate() {
         let (tri_z_min, tri_z_max) = match sampling_span {
             LayerSamplingSpan::CenterOnly => (tri.z_min, tri.z_max),
-            LayerSamplingSpan::FullLayer => (tri.z_min - layer_height_mm, tri.z_max + layer_height_mm),
+            LayerSamplingSpan::FullLayer => {
+                (tri.z_min - layer_height_mm, tri.z_max + layer_height_mm)
+            }
         };
         let b_start = ((tri_z_min - z_min_model) / bin_height)
             .floor()

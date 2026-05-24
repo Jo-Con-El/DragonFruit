@@ -21,7 +21,7 @@ export type NativeSolidSliceJobEnvelope = {
   pngCompressionStrategy: 'fastest' | 'balanced' | 'smallest' | 'optimal';
   bvhAccelerationEnabled: boolean;
   antiAliasingLevel: AntiAliasingLevel;
-  antiAliasingMode: 'Blur' | '3DAA' | 'Vertical2' | 'Vertical3' | 'CrossBlend' | 'Volumetric' | 'Coverage';
+  antiAliasingMode: 'Blur' | '3DAA' | 'Vertical2' | 'Coverage';
   blurBrushRadiusPx: number;
   zBlurRadiusLayers?: number;
   aaOnSupports: boolean;
@@ -34,7 +34,7 @@ export type NativeSolidSliceJobEnvelope = {
   zBlendMinimumAlphaPercent?: number;
   zBlendMaxAlphaPercent?: number;
   zBlendCustomLut?: number[];
-  zaaKernel?: 'legacy' | 'perturb';
+  zaaKernel?: 'perturb';
   zaaPattern?: 'uniform' | 'halton' | 'base2';
   zaaDuplicateZ?: boolean;
   modelTriangleCount: number;
@@ -69,7 +69,7 @@ type NativeSolidSlicePayload = {
   png_compression_strategy: 'fastest' | 'balanced' | 'smallest' | 'optimal';
   bvh_acceleration_enabled: boolean;
   anti_aliasing_level: AntiAliasingLevel;
-  anti_aliasing_mode: 'Blur' | '3DAA' | 'Vertical2' | 'Vertical3' | 'CrossBlend' | 'Volumetric' | 'Coverage';
+  anti_aliasing_mode: 'Blur' | '3DAA' | 'Vertical2' | 'Coverage';
   blur_brush_radius_px: number;
   z_blur_radius_layers: number;
   aa_on_supports: boolean;
@@ -82,7 +82,7 @@ type NativeSolidSlicePayload = {
   z_blend_minimum_alpha_percent?: number;
   z_blend_max_alpha_percent?: number;
   z_blend_custom_lut?: number[];
-  zaa_kernel?: 'legacy' | 'perturb';
+  zaa_kernel?: 'perturb';
   zaa_pattern?: 'uniform' | 'halton' | 'base2';
   zaa_duplicate_z?: boolean;
   model_triangle_count: number;
@@ -117,7 +117,7 @@ type NativeSolidSliceMetadataPayload = {
   x_packing_mode: 'none' | 'rgb8_div3' | 'gray3_div2';
   png_compression_strategy: 'fastest' | 'balanced' | 'smallest' | 'optimal';
   anti_aliasing_level: AntiAliasingLevel;
-  anti_aliasing_mode: 'Blur' | '3DAA' | 'Vertical2' | 'Vertical3' | 'CrossBlend' | 'Volumetric' | 'Coverage';
+  anti_aliasing_mode: 'Blur' | '3DAA' | 'Vertical2' | 'Coverage';
   blur_brush_radius_px: number;
   z_blur_radius_layers: number;
   aa_on_supports: boolean;
@@ -130,7 +130,7 @@ type NativeSolidSliceMetadataPayload = {
   z_blend_minimum_alpha_percent?: number;
   z_blend_max_alpha_percent?: number;
   z_blend_custom_lut?: number[];
-  zaa_kernel?: 'legacy' | 'perturb';
+  zaa_kernel?: 'perturb';
   zaa_pattern?: 'uniform' | 'halton' | 'base2';
   zaa_duplicate_z?: boolean;
   model_triangle_count: number;

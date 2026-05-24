@@ -65,6 +65,23 @@ fn default_model_triangle_count() -> u32 {
     0
 }
 
+fn dynamic_minimum_alpha_lut(percent: f32) -> Option<[u8; 256]> {
+    let min_alpha = ((percent.clamp(0.0, 100.0) / 100.0) * 255.0).round() as u8;
+    if min_alpha == 0 {
+        return None;
+    }
+
+    let mut lut = [0u8; 256];
+    lut[0] = 0;
+    lut[255] = 255;
+    let span = 255u16.saturating_sub(min_alpha as u16) as f32;
+    for idx in 1..255 {
+        let t = (idx - 1) as f32 / 254.0;
+        lut[idx] = (min_alpha as f32 + span * t).round().clamp(0.0, 255.0) as u8;
+    }
+    Some(lut)
+}
+
 fn anti_aliasing_level_steps(level: &str) -> u8 {
     let normalized = level.trim().to_ascii_lowercase();
     if normalized == "off" {
@@ -146,6 +163,12 @@ pub struct SliceJobV3 {
     #[serde(default = "default_model_triangle_count")]
     pub model_triangle_count: u32,
     /// Minimum grayscale alpha (0-100%) for non-zero AA pixels.
+    ///
+    /// When no explicit custom cure LUT is provided, the engine turns this
+    /// into a dynamic tail LUT that maps non-zero grayscale input into
+    /// `minimum_aa_alpha_percent..100%` while preserving `0 = void` and
+    /// `255 = solid`. For example, 35% maps input `1` to `89` and input `255`
+    /// to `255`.
     #[serde(default = "default_minimum_aa_alpha_percent")]
     pub minimum_aa_alpha_percent: f32,
     /// Mirror output image across X axis.
@@ -176,14 +199,11 @@ pub struct SliceJobV3 {
     /// deviating from the physical calibration.
     #[serde(default = "default_z_blend_auto_fade")]
     pub z_blend_auto_fade: bool,
-    /// Minimum gray level (0–100 %) for z-blend gradient pixels that fall outside
-    /// the current layer's binary footprint.  Defaults to 0 so that the
-    /// EDT gradient naturally tapers to zero at `fade_px`.  Non-zero values
-    /// extend printing into the receding zone even where the gradient is faint,
-    /// which can cause dimensional overgrowth and should generally be left at 0.
+    /// Minimum gray level (0–100 %) for vertical/3DAA grayscale output.
     ///
-    /// This is separate from `minimum_aa_alpha_percent`, which applies only to
-    /// XY blur / coverage AA pixels inside the current layer's footprint.
+    /// When no explicit custom cure LUT is provided, vertical/3DAA uses this
+    /// value to generate the same kind of final tail LUT as
+    /// `minimum_aa_alpha_percent` uses for 2D Blur/Coverage AA.
     #[serde(default = "default_z_blend_minimum_alpha_percent")]
     pub z_blend_minimum_alpha_percent: f32,
     /// Maximum gray level (0–100 %) for z-blend gradient pixels at the inner
@@ -284,9 +304,6 @@ impl SliceJobV3 {
         mode.eq_ignore_ascii_case("3daa")
             || mode.eq_ignore_ascii_case("vertical")
             || mode.eq_ignore_ascii_case("vertical2")
-            || mode.eq_ignore_ascii_case("vertical3")
-            || mode.eq_ignore_ascii_case("crossblend")
-            || mode.eq_ignore_ascii_case("volumetric")
     }
 
     #[inline]
@@ -340,6 +357,36 @@ impl SliceJobV3 {
         lut[0] = 0;
         lut[255] = 255;
         Some(lut)
+    }
+
+    #[inline]
+    pub fn normalized_tail_cure_lut(&self) -> Option<[u8; 256]> {
+        let minimum_alpha_percent = if self.anti_aliasing_mode_is_vertical() {
+            self.z_blend_minimum_alpha_percent
+        } else {
+            self.minimum_aa_alpha_percent
+        };
+        self.normalized_custom_cure_lut()
+            .or_else(|| dynamic_minimum_alpha_lut(minimum_alpha_percent))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dynamic_minimum_alpha_lut;
+
+    #[test]
+    fn dynamic_minimum_alpha_lut_maps_nonzero_to_minimum_window() {
+        let lut = dynamic_minimum_alpha_lut(35.0).expect("35% should create a LUT");
+        assert_eq!(lut[0], 0);
+        assert_eq!(lut[1], 89);
+        assert_eq!(lut[255], 255);
+        assert!(lut.windows(2).all(|pair| pair[0] <= pair[1]));
+    }
+
+    #[test]
+    fn dynamic_minimum_alpha_lut_is_none_for_zero_percent() {
+        assert!(dynamic_minimum_alpha_lut(0.0).is_none());
     }
 }
 

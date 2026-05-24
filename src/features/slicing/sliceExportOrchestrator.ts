@@ -172,7 +172,7 @@ export type SliceExportOrchestratorOptions = {
   zBlendMinimumAlphaPercent?: number;
   zBlendMaxAlphaPercent?: number;
   zBlendCustomLut?: number[];
-  zaaKernel?: 'legacy' | 'perturb';
+  zaaKernel?: 'perturb';
   zaaPattern?: 'uniform' | 'halton' | 'base2';
   zaaDuplicateZ?: boolean;
   minimumAaAlphaPercentOverride?: number;
@@ -253,7 +253,7 @@ export type SliceExportResult = {
       zBlurRadiusLayers: number;
       aaOnSupports: boolean;
       minimumAaAlphaPercent: number;
-      zaaKernel?: 'legacy' | 'perturb';
+      zaaKernel?: 'perturb';
       zaaPattern?: 'uniform' | 'halton' | 'base2';
       zaaDuplicateZ?: boolean;
       modelTriangleCount: number;

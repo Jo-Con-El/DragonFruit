@@ -1622,13 +1622,8 @@ fn rasterize_layer_with_stats_impl(
         0
     };
     let aa_enabled = aa_steps > 1;
-    let min_aa_alpha_u8 = if blur_radius > 0 {
-        ((job.minimum_aa_alpha_percent.clamp(0.0, 100.0) / 100.0) * 255.0).round() as u8
-    } else {
-        0
-    };
-    let blur_custom_lut = if blur_mode {
-        job.normalized_custom_cure_lut()
+    let blur_tail_lut = if blur_mode {
+        job.normalized_tail_cure_lut()
     } else {
         None
     };
@@ -1723,7 +1718,7 @@ fn rasterize_layer_with_stats_impl(
                     coverage += row_delta[x];
                     let resolved = resolve_accumulated_aa_alpha(row_accum[x], coverage, aa_steps);
                     if resolved > 0 {
-                        mask_row[x] = resolved.max(min_aa_alpha_u8);
+                        mask_row[x] = resolved;
                     }
                     row_accum[x] = 0.0;
                     row_delta[x] = 0;
@@ -1849,18 +1844,14 @@ fn rasterize_layer_with_stats_impl(
             width,
             height,
             effective_radius,
-            if blur_custom_lut.is_some() {
-                0
-            } else {
-                min_aa_alpha_u8
-            },
+            0,
             roi_min_x,
             roi_max_x,
             roi_min_y,
             roi_max_y,
         );
 
-        if let Some(lut) = blur_custom_lut.as_ref() {
+        if let Some(lut) = blur_tail_lut.as_ref() {
             apply_lut_to_mask_in_bounds(
                 &mut mask, width, roi_min_x, roi_max_x, roi_min_y, roi_max_y, lut,
             );
@@ -1936,7 +1927,7 @@ fn rasterize_layer_with_stats_impl(
                 coverage += row_delta[x];
                 let resolved = resolve_accumulated_aa_alpha(row_accum[x], coverage, aa_steps);
                 if resolved > 0 {
-                    mask_row[x] = resolved.max(min_aa_alpha_u8);
+                    mask_row[x] = resolved;
                 }
                 row_accum[x] = 0.0;
                 row_delta[x] = 0;
