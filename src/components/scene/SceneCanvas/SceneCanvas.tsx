@@ -1109,17 +1109,19 @@ export function SceneCanvas({
   const pendingHoverModelIdRef = React.useRef<string | null>(null);
   const [hoveredRaftModelId, setHoveredRaftModelId] = React.useState<string | null>(null);
   const [hoveredSupportPointerModelId, setHoveredSupportPointerModelId] = React.useState<string | null>(null);
+  const modelPickerEnabled = mode !== 'printing';
   const hoveredSupportModelIdFromStore = React.useMemo(() => {
+    if (!modelPickerEnabled) return null;
     const category = supportStateForBounds.hoveredCategory;
     if (category !== 'support' && category !== 'contactDisk' && category !== 'segment' && category !== 'joint' && category !== 'knot') {
       return null;
     }
     return getModelIdForSupportEntityId(supportStateForBounds.hoveredId);
-  }, [supportStateForBounds.hoveredCategory, supportStateForBounds.hoveredId]);
+  }, [modelPickerEnabled, supportStateForBounds.hoveredCategory, supportStateForBounds.hoveredId]);
   const hoveredSupportModelId = hoveredSupportPointerModelId ?? hoveredSupportModelIdFromStore;
   const hoveredModelId = React.useMemo(
-    () => hoveredMeshModelId ?? hoveredRaftModelId ?? hoveredSupportModelId,
-    [hoveredMeshModelId, hoveredRaftModelId, hoveredSupportModelId],
+    () => (modelPickerEnabled ? (hoveredMeshModelId ?? hoveredRaftModelId ?? hoveredSupportModelId) : null),
+    [hoveredMeshModelId, hoveredRaftModelId, hoveredSupportModelId, modelPickerEnabled],
   );
   const onModelHoverPointChange = React.useCallback((point: THREE.Vector3 | null) => {
     lastHoveredModelPointRef.current = point;
@@ -1152,7 +1154,34 @@ export function SceneCanvas({
     emitImmediateModelHover(null);
   }, [supportGizmoInteractionActive]);
 
+  React.useEffect(() => {
+    if (modelPickerEnabled) return;
+
+    pendingHoverModelIdRef.current = null;
+    if (hoverModelRafRef.current !== null) {
+      cancelAnimationFrame(hoverModelRafRef.current);
+      hoverModelRafRef.current = null;
+    }
+
+    setHoveredMeshModelId((prev) => (prev === null ? prev : null));
+    setHoveredRaftModelId((prev) => (prev === null ? prev : null));
+    setHoveredSupportPointerModelId((prev) => (prev === null ? prev : null));
+    emitImmediateModelHover(null);
+  }, [modelPickerEnabled]);
+
   const onModelHoverModelChange = React.useCallback((id: string | null) => {
+    if (!modelPickerEnabled) {
+      pendingHoverModelIdRef.current = null;
+      if (hoverModelRafRef.current !== null) {
+        cancelAnimationFrame(hoverModelRafRef.current);
+        hoverModelRafRef.current = null;
+      }
+      setHoveredMeshModelId((prev) => (prev === null ? prev : null));
+      setHoveredRaftModelId((prev) => (prev === null ? prev : null));
+      setHoveredSupportPointerModelId((prev) => (prev === null ? prev : null));
+      return;
+    }
+
     const nextId = id ?? null;
     pendingHoverModelIdRef.current = nextId;
     if (hoverModelRafRef.current !== null) return;
@@ -1168,16 +1197,18 @@ export function SceneCanvas({
         setHoveredSupportPointerModelId((prev) => (prev === null ? prev : null));
       }
     });
-  }, []);
+  }, [modelPickerEnabled]);
 
   React.useEffect(() => {
     const handleModelPointerHoverImmediate = (event: Event) => {
+      if (!modelPickerEnabled) return;
       const customEvent = event as CustomEvent<{ modelId?: string | null }>;
       const modelId = customEvent.detail?.modelId ?? null;
       onModelHoverModelChange(modelId);
     };
 
     const handleSupportRaftModelPointerHover = (event: Event) => {
+      if (!modelPickerEnabled) return;
       const customEvent = event as CustomEvent<{ modelId?: string | null; category?: string | null }>;
       const category = customEvent.detail?.category;
       if (category === 'raft') {
@@ -1225,7 +1256,7 @@ export function SceneCanvas({
       window.removeEventListener('model-pointer-hover-immediate', handleModelPointerHoverImmediate as EventListener);
       window.removeEventListener('support-raft-model-pointer-hover', handleSupportRaftModelPointerHover as EventListener);
     };
-  }, [onModelHoverModelChange]);
+  }, [modelPickerEnabled, onModelHoverModelChange]);
 
 
   const selectModelFromPointerHit = React.useCallback((modelId: string | null | undefined) => {
@@ -1570,6 +1601,7 @@ export function SceneCanvas({
     if (hoveredModelId) return '#c8752a';
     return '#a3a3a3';
   }, [activeModelId, hoveredModelId]);
+  const supportHoverModelId = modelPickerEnabled ? hoveredModelId : null;
 
   const supportCreationModeActive = Boolean(
     isBranchPlacementActive
@@ -1577,7 +1609,7 @@ export function SceneCanvas({
     || isBracePlacementActive
     || isKickstandPlacementActive,
   );
-  const suppressSupportSelectionAndHover = mode === 'prepare' && transformMode === 'transform';
+  const suppressSupportSelectionAndHover = !modelPickerEnabled || (mode === 'prepare' && transformMode === 'transform');
 
   const supportHoverTargetActive = isSupportTargetHoverCategory(supportStateForBounds.hoveredCategory);
   // When a placement mode is active, hovering a support is *intentional*
@@ -4863,7 +4895,7 @@ export function SceneCanvas({
           enabled={gpuPickingTest}
           mode={mode}
           transformMode={transformMode}
-          interactionEnabled={cameraInteractionCycleEnabled}
+          interactionEnabled={cameraInteractionCycleEnabled && modelPickerEnabled}
         >
           <PickingStateSyncer enabled={cameraInteractionCycleEnabled} />
           <PickingEmptySpaceHoverResetter enabled={cameraInteractionCycleEnabled && (mode === 'prepare' || mode === 'support')} />
@@ -4896,7 +4928,7 @@ export function SceneCanvas({
                 const isActive = isCaptureTintModel || model.id === activeModelId;
                 const isSelectedModel = isCaptureTintModel || selectedModelIdSet.has(model.id);
                 const isMarqueeCandidate = isMarqueeSelecting && marqueeCandidateIdSet.has(model.id);
-                const suppressModelInteraction = !cameraInteractionCycleEnabled || isGizmoDragging || isPostGizmoInteractionGuardActive || supportGizmoInteractionActive || isOrbitInteracting || isWheelZoomInteracting || spaceMouseNavigationActive;
+                const suppressModelInteraction = !modelPickerEnabled || !cameraInteractionCycleEnabled || isGizmoDragging || isPostGizmoInteractionGuardActive || supportGizmoInteractionActive || isOrbitInteracting || isWheelZoomInteracting || spaceMouseNavigationActive;
                 const interactionLodEnabled = (isOrbitInteracting || isWheelZoomInteracting || spaceMouseNavigationActive) && !isActive;
                 const supportNonSelectedOpacity = mode === 'support' && !!activeModelId && !isActive ? 0.5 : undefined;
                 const shouldHideDuplicateSourceModel = Boolean(
@@ -4977,7 +5009,7 @@ export function SceneCanvas({
                       onSupportClick={onSupportClick}
                       onSupportHover={handleSupportHover}
                       onActiveModelChange={onActiveModelChange}
-                      disableRaycast={disableRaycast || !cameraInteractionCycleEnabled}
+                      disableRaycast={disableRaycast || !modelPickerEnabled || !cameraInteractionCycleEnabled}
                       blockSupportPlacement={!cameraInteractionCycleEnabled || isGizmoDragging || blockSupportPlacement}
                       suppressNextClickRef={suppressNextCanvasClickRef}
                       isSelected={
@@ -5036,7 +5068,7 @@ export function SceneCanvas({
                             selectedTintStrength={selectedTintStrength}
                             activeModelId={activeModelId}
                             selectedModelIds={selectedModelIds}
-                            hoverModelId={hoveredModelId}
+                            hoverModelId={supportHoverModelId}
                             modelDropOffsetsById={entryDropOffsets}
                             navigationLodActive={navigationLodActive}
                             disableSelectionAndHover={supportCreationModeActive || suppressSupportSelectionAndHover}
@@ -5331,7 +5363,7 @@ export function SceneCanvas({
                   selectedTintStrength={selectedTintStrength}
                   activeModelId={activeModelId}
                   selectedModelIds={selectedModelIds}
-                  hoverModelId={hoveredModelId}
+                  hoverModelId={supportHoverModelId}
                   modelDropOffsetsById={entryDropOffsets}
                   navigationLodActive={navigationLodActive}
                   disableSelectionAndHover={supportCreationModeActive || suppressSupportSelectionAndHover}
@@ -5443,7 +5475,7 @@ export function SceneCanvas({
                   selectedTintStrength={selectedTintStrength}
                   activeModelId={activeModelId}
                   selectedModelIds={selectedModelIds}
-                  hoverModelId={hoveredModelId}
+                  hoverModelId={supportHoverModelId}
                   modelDropOffsetsById={entryDropOffsets}
                   navigationLodActive
                   disableSelectionAndHover={supportCreationModeActive || suppressSupportSelectionAndHover}
@@ -5478,7 +5510,7 @@ export function SceneCanvas({
                         selectedTintStrength={selectedTintStrength}
                         activeModelId={activeModelId}
                         selectedModelIds={selectedModelIds}
-                        hoverModelId={hoveredModelId}
+                        hoverModelId={supportHoverModelId}
                         modelDropOffsetsById={entryDropOffsets}
                         modelFilterId={modelId}
                         disableSelectionAndHover={supportCreationModeActive || suppressSupportSelectionAndHover}
