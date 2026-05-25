@@ -5,6 +5,8 @@
 
 DragonFruit is an open-source resin slicer and support-generation environment built by the Open Resin Alliance. It combines a modern Next.js + React frontend with native Rust slicing backends and a Tauri desktop runtime.
 
+Unless a subdirectory or submodule states otherwise, DragonFruit content in this repository is licensed under **AGPL-3.0-or-later**.
+
 > :warning: **DragonFruit is under active development. Please exercise caution for production print workflows, validate outputs, and avoid unattended printing on first use.**
 
 ## Table of Contents
@@ -97,7 +99,9 @@ We welcome and appreciate contributions to DragonFruit! If you'd like to contrib
 
 ## License
 
-DragonFruit licensing details are currently being finalized in-repo. Until a top-level license file is published, please coordinate usage and redistribution questions with the maintainers via the Open Resin Alliance channels.
+Unless stated otherwise in a subdirectory or submodule, DragonFruit is licensed under **AGPL-3.0-or-later**. See the top-level `LICENSE` file for the full terms.
+
+The plugin submodules under `plugins/` are licensed separately under **MIT**. Each plugin repository includes its own `LICENSE` file.
 
 ## Contact
 
