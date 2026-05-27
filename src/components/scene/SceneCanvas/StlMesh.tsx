@@ -6,6 +6,9 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { usePicking } from '@/components/picking';
 import { MeshShaderMaterial, type MeshShaderType } from '@/features/shaders/mesh';
 import { OpaqueWireOverlayMaterial } from '@/features/shaders/mesh/opaqueWireMesh';
+import { supportPainterStore } from '@/features/supportPainter/supportPainterStore';
+import { PAINT_ROI_ADD, PAINT_ROI_REMOVE } from '@/features/supportPainter/supportPainterHistoryTypes';
+import { pushHistory } from '@/history/historyStore';
 import {
   beginMeshSmoothingStroke,
   updateMeshSmoothingStroke,
@@ -176,6 +179,7 @@ function StlMeshComponent({
   isExternallyHovered,
   deferExternalTransformUpdates,
   supportSectionGeometry,
+  materialOverride,
   children,
 }: {
   geometry: THREE.BufferGeometry;
@@ -241,6 +245,7 @@ function StlMeshComponent({
   /** When present (model+support mixed import), this geometry contains only the support-section
    *  triangles and is rendered as an orange overlay on top of the main mesh. */
   supportSectionGeometry?: THREE.BufferGeometry | null;
+  materialOverride?: THREE.Material | null;
   children?: React.ReactNode;
 }) {
   // Access GPU picking state to detect gizmo hover
@@ -992,6 +997,19 @@ if (uDitherAmount > 0.0) {
             }
           }
 
+          if (mode === 'supportPainter') {
+            if (isGizmoHoverCategory || isSupportLikeHoverCategory) {
+              supportPainterStore.setHoveredTriangle(null);
+            } else if (isActiveModel) {
+              const faceIndex = e.faceIndex;
+              if (faceIndex !== undefined) {
+                supportPainterStore.setHoveredTriangle(faceIndex);
+              }
+            } else {
+              supportPainterStore.setHoveredTriangle(null);
+            }
+          }
+
           if (mode === 'support' && onSupportHover) {
             // Mute hover when placement is blocked
             if (blockSupportPlacement) return;
@@ -1048,9 +1066,54 @@ if (uDitherAmount > 0.0) {
           if (mode === 'support' && onSupportHover) {
             onSupportHover(null);
           }
+
+          if (mode === 'supportPainter') {
+            supportPainterStore.setHoveredTriangle(null);
+            supportPainterStore.setInteractionPhase('Idle');
+          }
         }}
         onPointerDown={(e) => {
           if (isSupportShiftGesture(e)) {
+            return;
+          }
+
+          if (mode === 'supportPainter' && isActiveModel && e.button === 0) {
+            e.stopPropagation();
+            const faceIndex = e.faceIndex;
+            if (faceIndex !== undefined && faceIndex !== null) {
+              const snap = supportPainterStore.getSnapshot();
+              if (snap.modifierKeys.alt) {
+                // Subtract mode
+                supportPainterStore.setInteractionPhase('Subtract');
+                const deletedId = supportPainterStore.removeRegionContainingTriangle(faceIndex);
+                if (deletedId) {
+                  const deletedRegion = snap.regions.get(deletedId);
+                  if (deletedRegion) {
+                    pushHistory({
+                      type: PAINT_ROI_REMOVE,
+                      description: 'Subtract painted region',
+                      payload: { region: deletedRegion },
+                    });
+                  }
+                }
+              } else {
+                // Commit/Expand mode
+                supportPainterStore.setInteractionPhase('Expand');
+                const newId = supportPainterStore.commitRegion({
+                  seedTriangleId: faceIndex,
+                  brushType: snap.activeBrush,
+                });
+                const nextSnap = supportPainterStore.getSnapshot();
+                const addedRegion = nextSnap.regions.get(newId);
+                if (addedRegion) {
+                  pushHistory({
+                    type: PAINT_ROI_ADD,
+                    description: 'Paint region of interest',
+                    payload: { region: addedRegion },
+                  });
+                }
+              }
+            }
             return;
           }
 
@@ -1108,7 +1171,9 @@ if (uDitherAmount > 0.0) {
           }
         }}
       >
-        {typeof revealGhostOpacity === 'number' ? (
+        {materialOverride ? (
+          <primitive object={materialOverride} attach="material" />
+        ) : typeof revealGhostOpacity === 'number' ? (
           <meshStandardMaterial
             color={meshColor ?? '#c8c8ce'}
             transparent

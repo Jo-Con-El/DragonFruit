@@ -3,7 +3,7 @@ import type { ContactCone } from './SupportPrimitives/ContactCone/types';
 import type { ContactDiskProfile } from './SupportPrimitives/ContactCone/types';
 import type { KickstandBuildResult } from './SupportTypes/Kickstand/types';
 
-export type SupportMode = 'prepare' | 'analysis' | 'support' | 'export' | 'printing';
+export type SupportMode = 'prepare' | 'analysis' | 'support' | 'export' | 'printing' | 'supportPainter';
 
 // --- Basic Math Types ---
 

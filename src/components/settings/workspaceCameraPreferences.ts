@@ -23,6 +23,7 @@ export const DEFAULT_WORKSPACE_CAMERA_SETTINGS: WorkspaceCameraSettings = {
     support: 'orthographic',
     export: 'orthographic',
     printing: 'orthographic',
+    supportPainter: 'orthographic',
   },
   selectionHighlightDefaults: {
     prepare: 'tint',
@@ -30,6 +31,7 @@ export const DEFAULT_WORKSPACE_CAMERA_SETTINGS: WorkspaceCameraSettings = {
     support: 'tint',
     export: 'tint',
     printing: 'tint',
+    supportPainter: 'tint',
   },
 };
 
@@ -82,6 +84,7 @@ export function normalizeWorkspaceCameraSettings(input: unknown): WorkspaceCamer
       support: normalizeMode(defaults.support),
       export: normalizeMode(defaults.export),
       printing: normalizeMode(defaults.printing),
+      supportPainter: normalizeMode(defaults.supportPainter),
     },
     selectionHighlightDefaults: {
       prepare: normalizeSelectionHighlightMode(selectionHighlightDefaults.prepare),
@@ -89,6 +92,7 @@ export function normalizeWorkspaceCameraSettings(input: unknown): WorkspaceCamer
       support: normalizeSelectionHighlightMode(selectionHighlightDefaults.support),
       export: normalizeSelectionHighlightMode(selectionHighlightDefaults.export),
       printing: normalizeSelectionHighlightMode(selectionHighlightDefaults.printing),
+      supportPainter: normalizeSelectionHighlightMode(selectionHighlightDefaults.supportPainter),
     },
   };
 }

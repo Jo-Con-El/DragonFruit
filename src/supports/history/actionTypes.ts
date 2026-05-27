@@ -1,5 +1,6 @@
 import type { Anchor, Roots, Trunk, Leaf, Knot, Branch, Brace, Twig, Stick, SupportState } from '../types';
 import type { KickstandBuildResult, KickstandRemoveResult, KickstandState } from '../SupportTypes/Kickstand/types';
+import { PAINT_ROI_ADD, PAINT_ROI_REMOVE } from '@/features/supportPainter/supportPainterHistoryTypes';
 
 export const SUPPORT_ADD_TRUNK = 'support:add-trunk' as const;
 export const SUPPORT_REMOVE_TRUNK = 'support:remove-trunk' as const;
@@ -52,12 +53,15 @@ export type SupportHistoryActionType =
   | typeof SUPPORT_REMOVE_KICKSTAND
   | typeof SUPPORT_REPLACE_TRUNK
   | typeof SUPPORT_EDIT_REPLACE
-  | typeof SUPPORT_AUTO_BRACE_REPLACE;
+  | typeof SUPPORT_AUTO_BRACE_REPLACE
+  | typeof PAINT_ROI_ADD
+  | typeof PAINT_ROI_REMOVE;
 
 export interface SupportTrunkPayload {
   trunk: Trunk;
   root?: Roots | null;
   branches?: Branch[];
+
   braces?: Brace[];
   kickstands?: KickstandBuildResult[];
   leaves?: Leaf[];

@@ -199,6 +199,13 @@ export function useSupportInteractionManager({ mode }: SupportInteractionOptions
 
   // Handler for MODEL hover (used for trunk placement preview, or branch tip preview)
   const onModelHover = useCallback((hit: THREE.Intersection | null) => {
+    if (mode === 'supportPainter') {
+      trunkPlacementV2.onSupportHover(null);
+      branchPlacement.onModelHover(null);
+      leafPlacement.onModelHover(null);
+      return;
+    }
+
     const nativeEvent = getNativeEventSource(hit);
 
     if (isSupportEditInteractionActive()) {
@@ -253,10 +260,14 @@ export function useSupportInteractionManager({ mode }: SupportInteractionOptions
     }
 
     trunkPlacementV2.onSupportHover(hit);
-  }, [isPlacementHardDisabled, trunkPlacementV2, branchPlacement, leafPlacement, jointCreationState.isActive, resolvePlacementRouting]);
+  }, [mode, isPlacementHardDisabled, trunkPlacementV2, branchPlacement, leafPlacement, jointCreationState.isActive, resolvePlacementRouting]);
 
   // Handler for MODEL click (trunk placement, or branch tip placement)
   const onModelClick = useCallback((hit: THREE.Intersection) => {
+    if (mode === 'supportPainter') {
+      return;
+    }
+
     const nativeEvent = getNativeEventSource(hit);
 
     if (isSupportEditInteractionActive()) {
@@ -284,7 +295,7 @@ export function useSupportInteractionManager({ mode }: SupportInteractionOptions
     }
 
     trunkPlacementV2.onSupportClick(hit);
-  }, [trunkPlacementV2, branchPlacement, leafPlacement, jointCreationState.isActive, resolvePlacementRouting]);
+  }, [mode, trunkPlacementV2, branchPlacement, leafPlacement, jointCreationState.isActive, resolvePlacementRouting]);
 
   // Handler for SUPPORT hover (branch base preview when hovering existing support shafts)
   // NOTE: We do NOT check isPlacementDisabled here because branch placement

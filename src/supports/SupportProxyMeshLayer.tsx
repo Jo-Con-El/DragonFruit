@@ -53,7 +53,7 @@ function isBezierSegment(seg: Segment): seg is BezierSegment {
 }
 
 interface SupportProxyMeshLayerProps {
-  mode?: 'prepare' | 'analysis' | 'support' | 'export' | 'printing';
+  mode?: 'prepare' | 'analysis' | 'support' | 'export' | 'printing' | 'supportPainter';
   clipLower?: number | null;
   clipUpper?: number | null;
   supportColorsByModelId?: Record<string, string>;

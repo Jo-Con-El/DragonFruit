@@ -36,6 +36,7 @@ import {
     SupportKindTabs,
 } from './components';
 import { Button, Card, CardHeader, IconButton } from '@/components/ui/primitives';
+import { SupportPainterModeToggle } from '@/features/supportPainter/components/SupportPainterModeToggle';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { SelectDropdown } from '@/components/ui/SelectDropdown';
 import { SupportAnatomyPreviewSlot } from './AnatomyPreview/SupportAnatomyPreviewSlot';
@@ -1093,6 +1094,10 @@ export function SupportSidebar() {
                                             setActiveSupportKind(kind);
                                         }}
                                     />
+
+                                    <div className="py-0.5">
+                                        <SupportPainterModeToggle />
+                                    </div>
 
                                     {activeKind === 'raft' ? (
                                         <>

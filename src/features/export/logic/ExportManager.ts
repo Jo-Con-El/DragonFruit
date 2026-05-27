@@ -3,6 +3,8 @@ import { STLExporter } from 'three-stdlib';
 import type { LoadedModel } from '@/features/scene/useSceneCollectionManager';
 import { KNOWN_SOURCE_EXTENSION_STRIP_RE } from '@/features/plugins/pluginFileTypeExtensions';
 import { buildSupportExportFromStores, serializeVoxlDocumentV2 } from '@/features/scene/voxl';
+import { supportPainterStore } from '@/features/supportPainter/supportPainterStore';
+import { serializeROIsForVoxl } from '@/features/supportPainter/voxlCodec';
 import { buildScopedSupportExportDocument, buildScopedSupportGeometryGroup } from '@/features/export/logic/supportExportReconstruction';
 import { allocateMeshStagePath, exportMeshFile, pickSavePathWithNativeDialog, writeChunkedToNativePath } from '@/features/slicing/tauri/nativeSlicerBridge';
 import { getKickstandSnapshot } from '@/supports/SupportTypes/Kickstand/kickstandStore';
@@ -1174,16 +1176,28 @@ export class ExportManager {
       : [];
 
     const thumbnailBytes = sceneContext?.exportThumbnailPng;
-    const voxlExtensions = thumbnailBytes && thumbnailBytes.length > 0
-      ? {
-          'ora.preview': {
-            kind: 'scene-thumbnail',
-            mimeType: 'image/png',
-            encoding: 'base64',
-            dataBase64: this.toBase64(thumbnailBytes),
-          },
+    const painterState = supportPainterStore.getSnapshot();
+    const hasROIs = painterState.regions.size > 0;
+
+    let voxlExtensions: Record<string, any> | undefined = undefined;
+
+    if ((thumbnailBytes && thumbnailBytes.length > 0) || hasROIs) {
+      voxlExtensions = {};
+      if (thumbnailBytes && thumbnailBytes.length > 0) {
+        voxlExtensions['ora.preview'] = {
+          kind: 'scene-thumbnail',
+          mimeType: 'image/png',
+          encoding: 'base64',
+          dataBase64: this.toBase64(thumbnailBytes),
+        };
+      }
+      if (hasROIs) {
+        const activeModelId = sceneContext?.activeModelId;
+        if (activeModelId) {
+          voxlExtensions['dragonfruit.roi'] = serializeROIsForVoxl(painterState.regions, activeModelId);
         }
-      : undefined;
+      }
+    }
 
     // serializeVoxlDocumentV2 is async — compression runs off the main thread.
     const binary = await serializeVoxlDocumentV2(

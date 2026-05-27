@@ -23,6 +23,8 @@ import { generateUuid } from '@/utils/uuid';
 import { registerMeshForAutoBrace, unregisterMeshForAutoBrace } from '@/supports/autoBracing/meshGeometryStore';
 import { getKickstandSnapshot, setKickstandSnapshot } from '@/supports/SupportTypes/Kickstand/kickstandStore';
 import type { KickstandState } from '@/supports/SupportTypes/Kickstand/types';
+import { supportPainterStore } from '@/features/supportPainter/supportPainterStore';
+import { isVoxlROIExtension } from '@/features/supportPainter/voxlCodec';
 import type { MatcapVariant, MeshShaderType } from '@/features/shaders/mesh';
 import {
   DEFAULT_VIEW3D_SETTINGS,
@@ -2659,6 +2661,10 @@ export function useSceneCollectionManager() {
       }
     }
 
+    if (activeModelIdRef.current && ids.has(activeModelIdRef.current)) {
+      supportPainterStore.clearAll();
+    }
+
     const after = captureSceneSnapshot(nextModels, nextActiveModelId, nextSelectedModelIds, { includeSupportState: includeSupportHistory });
     const deletedLabel = existing.length === 1
       ? `Delete Model ${existing[0].name}`
@@ -3830,6 +3836,20 @@ export function useSceneCollectionManager() {
           if (transformsEqual(sourceTransform, imported.transform)) continue;
           transformSupportsForModel(imported.id, sourceTransform, imported.transform);
         }
+      }
+
+      // Restore support painter ROIs if available
+      const roiExt = document.extensions?.['dragonfruit.roi'];
+      if (roiExt && isVoxlROIExtension(roiExt)) {
+        const mappedModelId = idMap.get(roiExt.modelId) || roiExt.modelId;
+        const remappedRoiExt = {
+          ...roiExt,
+          modelId: mappedModelId,
+        };
+        supportPainterStore.loadFromVoxl(remappedRoiExt);
+      } else {
+        // Clear regions to prevent stale painting from carrying over
+        supportPainterStore.clearAll();
       }
 
       const importedSupportCount = countSupportEntries(document.supports);

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect } from 'react';
 import dynamic from 'next/dynamic';
@@ -84,8 +84,12 @@ import { PickingEmptySpaceHoverResetter, SceneRenderBindings } from './SceneCanv
 import { PickingProviderWrapper, SelectionSync, useInteractionWarning } from './SceneSelectionAndPicking';
 import { CameraClipPlaneStabilizer, CameraProvider, EnableLocalClipping, Helpers, Lights, SceneMoodOverlay } from './SceneEnvironment';
 import { StlMesh } from './StlMesh';
+import { SupportPainterPanel } from '@/features/supportPainter/components/SupportPainterPanel';
 import { setClipBounds } from './clipBoundsStore';
 import { useIsLinux } from '@/hooks/usePlatform';
+import { useSupportPainterManager } from '@/features/supportPainter/useSupportPainterManager';
+import { useRoiHighlightMaterial } from '@/features/supportPainter/shaders/roiHighlight';
+import { supportPainterStore, useSupportPainterState } from '@/features/supportPainter/supportPainterStore';
 import {
   DEFAULT_CAMERA_PROJECTION_SETTINGS,
   getSavedCameraProjectionSettings,
@@ -346,6 +350,7 @@ export function SceneCanvas({
   pxMm,
   showIslandIdLabels,
   mode,
+  onModeChange,
   onSupportClick,
   onSupportHover,
   onActiveModelChange,
@@ -473,6 +478,7 @@ export function SceneCanvas({
   pxMm?: number;
   showIslandIdLabels?: boolean;
   mode?: SupportMode;
+  onModeChange?: (mode: SupportMode) => void;
   onSupportClick?: (hit: THREE.Intersection) => void;
   onSupportHover?: (hit: THREE.Intersection | null) => void;
   onActiveModelChange?: (id: string | null, options?: { selectionMode?: 'single' | 'toggle' | 'add' }) => void;
@@ -822,6 +828,40 @@ export function SceneCanvas({
   }, [activeModelId, visualActiveModelId]);
 
   const colorActiveModelId = React.useMemo(() => committedActiveModelId, [committedActiveModelId]);
+
+  // Support Painter Hook Invocations & Synchronization
+  const painterState = useSupportPainterState();
+  useSupportPainterManager(painterState.isActive);
+
+  const activeModelGeom = React.useMemo(() => {
+    if (!activeModelId) return null;
+    return models.find((m) => m.id === activeModelId)?.geometry.geometry || null;
+  }, [activeModelId, models]);
+
+  const roiHighlightMaterial = useRoiHighlightMaterial(
+    activeModelGeom,
+    painterState.isActive,
+    meshColor
+  );
+
+  React.useEffect(() => {
+    if (painterState.isActive && mode !== 'supportPainter') {
+      onSupportClick?.(null as any);
+      clearSupportSelection();
+      onActiveModelChange?.(activeModelId, { selectionMode: 'single' });
+      onModeChange?.('supportPainter');
+    } else if (!painterState.isActive && mode === 'supportPainter') {
+      onModeChange?.('support');
+    }
+  }, [painterState.isActive, mode, onModeChange, activeModelId, onActiveModelChange, onSupportClick]);
+
+  React.useEffect(() => {
+    if (mode !== 'supportPainter' && painterState.isActive) {
+      supportPainterStore.deactivate();
+    } else if (mode === 'supportPainter' && !painterState.isActive) {
+      supportPainterStore.activate();
+    }
+  }, [mode, painterState.isActive]);
 
   const meshRefs = React.useRef<Record<string, THREE.Group | null>>({});
   const actualMeshRefs = React.useRef<Record<string, THREE.Mesh | null>>({});
@@ -5047,11 +5087,14 @@ export function SceneCanvas({
                 if (shouldHideDuplicateSourceModel) return null;
                 if (arrangeArraySourceModelIdSet.has(model.id)) return null;
 
+                const materialOverride = model.id === activeModelId ? roiHighlightMaterial : null;
+
                 return (
                   <React.Fragment key={model.id}>
                     <StlMesh
                       modelId={model.id}
                       geometry={model.geometry.geometry}
+                      materialOverride={materialOverride}
                       clipLower={clipLower}
                       clipUpper={clipUpper}
                       meshColor={model.color || meshColor} // Use model color
@@ -6565,6 +6608,10 @@ export function SceneCanvas({
           <AlertTriangle className="h-4 w-4 flex-shrink-0" />
           <span>{outOfBoundsModels.length} model{outOfBoundsModels.length === 1 ? '' : 's'} out of build volume</span>
         </div>
+      )}
+
+      {painterState.isActive && (
+        <SupportPainterPanel />
       )}
     </div>
   );

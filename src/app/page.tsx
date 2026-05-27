@@ -14695,7 +14695,7 @@ export default function Home() {
             />
           </>
 
-        ) : scene.mode === 'support' ? (
+        ) : (scene.mode === 'support' || scene.mode === 'supportPainter') ? (
           <>
             <SupportSidebar key="support-settings" />
           </>
@@ -15100,6 +15100,7 @@ export default function Home() {
             onTransformChange={handleTransformChange}
             onTransformEnd={handleTransformEnd}
             mode={scene.mode}
+            onModeChange={handleModeChange}
             onSupportClick={supports.onModelClick}
             onSupportHover={supports.onModelHover}
             onActiveModelChange={handleSceneModelSelection}
