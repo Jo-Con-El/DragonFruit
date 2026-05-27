@@ -837,6 +837,19 @@ export function SceneCanvas({
   const painterState = useSupportPainterState();
   useSupportPainterManager(painterState.isActive, activeModelId, activeModelGeom);
 
+  const getActiveMesh = React.useCallback(() => {
+    if (!activeModelId) return null;
+    const group = meshRefs.current[activeModelId];
+    if (!group) return null;
+    let mesh: THREE.Mesh | null = null;
+    group.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        mesh = child;
+      }
+    });
+    return mesh;
+  }, [activeModelId]);
+
   React.useEffect(() => {
     if (mode === 'supportPainter') {
       if (!painterState.isActive) {
@@ -6597,7 +6610,7 @@ export function SceneCanvas({
       )}
 
       {painterState.isActive && (
-        <SupportPainterPanel />
+        <SupportPainterPanel activeModelId={activeModelId} getActiveMesh={getActiveMesh} />
       )}
     </div>
   );

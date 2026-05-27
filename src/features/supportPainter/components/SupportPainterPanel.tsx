@@ -1,13 +1,41 @@
-import React from 'react';
+import React, { useState } from 'react';
+import * as THREE from 'three';
 import { supportPainterStore, useSupportPainterState } from '../supportPainterStore';
 import { type BrushType, BRUSH_COLORS } from '../supportPainterTypes';
+import { generateSupportsFromPainter } from '../supportScriptingEngine';
 
-export function SupportPainterPanel({ onExit }: { onExit?: () => void }) {
+export function SupportPainterPanel({
+  onExit,
+  activeModelId,
+  getActiveMesh,
+}: {
+  onExit?: () => void;
+  activeModelId?: string | null;
+  getActiveMesh?: () => THREE.Mesh | null;
+}) {
   const state = useSupportPainterState();
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const handleExit = () => {
     supportPainterStore.deactivate();
     if (onExit) onExit();
+  };
+
+  const handleGenerate = async () => {
+    if (!activeModelId || !getActiveMesh || state.regions.size === 0) return;
+    const mesh = getActiveMesh();
+    if (!mesh) return;
+
+    setIsGenerating(true);
+    try {
+      await generateSupportsFromPainter(activeModelId, mesh, Array.from(state.regions.values()));
+      supportPainterStore.clearAll();
+      handleExit();
+    } catch (err) {
+      console.error('[SupportPainterPanel] Generation failed', err);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const activeColor = BRUSH_COLORS[state.activeBrush];
@@ -127,7 +155,7 @@ export function SupportPainterPanel({ onExit }: { onExit?: () => void }) {
                   style={{ borderColor: 'var(--border-subtle)' }}
                 >
                   <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded border" style={{ backgroundColor: region.color, borderColor: '#ffffff20' }} />
+                    <div className="w-3.5 h-3.5 rounded border" style={{ backgroundColor: region.color, borderColor: '#ffffff20' }} />
                     <div className="flex flex-col">
                       <span className="font-medium">{region.brushType}</span>
                       <span className="text-[9px] opacity-50">Seed #{region.seedTriangleId}</span>
@@ -152,18 +180,26 @@ export function SupportPainterPanel({ onExit }: { onExit?: () => void }) {
         </div>
       </div>
 
-      {/* Footer Support Generation Placeholder */}
+      {/* Footer Support Generation */}
       <button
         type="button"
-        disabled
-        className="w-full py-2.5 rounded-lg text-xs font-semibold text-center opacity-40 cursor-not-allowed border"
+        disabled={state.regions.size === 0 || isGenerating}
+        onClick={handleGenerate}
+        className={`w-full py-2.5 rounded-lg text-xs font-semibold text-center border transition-all duration-200 ${
+          state.regions.size === 0 || isGenerating
+            ? 'opacity-40 cursor-not-allowed bg-neutral-800 border-neutral-700 text-neutral-400'
+            : 'hover:scale-[1.01] hover:shadow-lg active:scale-[0.99] border-[#ff5b6f]/30 text-white cursor-pointer'
+        }`}
         style={{
-          background: 'var(--surface-1)',
-          borderColor: 'var(--border-subtle)',
-          color: 'var(--text-strong)',
+          background: state.regions.size === 0 || isGenerating
+            ? 'var(--surface-1)'
+            : 'linear-gradient(135deg, #ff5b6f 0%, #d92b43 100%)',
+          borderColor: state.regions.size === 0 || isGenerating
+            ? 'var(--border-subtle)'
+            : '#ff5b6f50',
         }}
       >
-        Generate Supports (Phase 4)
+        {isGenerating ? 'Generating Supports...' : `Generate Supports (${state.regions.size} Regions)`}
       </button>
     </div>
   );

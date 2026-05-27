@@ -37,6 +37,7 @@ import {
 } from './components';
 import { Button, Card, CardHeader, IconButton } from '@/components/ui/primitives';
 import { SupportPainterModeToggle } from '@/features/supportPainter/components/SupportPainterModeToggle';
+import type { SupportMode } from '../types';
 import { NumberInput } from '@/components/ui/NumberInput';
 import { SelectDropdown } from '@/components/ui/SelectDropdown';
 import { SupportAnatomyPreviewSlot } from './AnatomyPreview/SupportAnatomyPreviewSlot';
@@ -168,7 +169,7 @@ function fieldFocusProps(
  * Main settings panel for support mode.
  * Displays presets and editable settings for tip, shaft, roots, base flare, and grid.
  */
-export function SupportSidebar() {
+export function SupportSidebar({ onModeChange }: { onModeChange?: (mode: SupportMode) => void }) {
     usePresetHotkeys();
     const settings = useSyncExternalStore(subscribeToSettings, getSettings, getSettings);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
@@ -1096,7 +1097,7 @@ export function SupportSidebar() {
                                     />
 
                                     <div className="py-0.5">
-                                        <SupportPainterModeToggle />
+                                        <SupportPainterModeToggle onModeChange={onModeChange ? (mode) => onModeChange(mode as any) : undefined} />
                                     </div>
 
                                     {activeKind === 'raft' ? (
