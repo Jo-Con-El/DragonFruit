@@ -210,6 +210,7 @@ export async function generateSupportsFromPainter(
 
   // 1. Capture snapshot before execution for single-stroke history undo
   const beforeState = getSupportSnapshot();
+  const beforeRegions = new Map(supportPainterStore.getSnapshot().regions);
 
   // Ensure matrixWorld is fully up to date
   mesh.updateMatrixWorld(true);
@@ -615,11 +616,18 @@ export async function generateSupportsFromPainter(
           continue;
         }
         // Match suppression radius to the compared target point
-        const radius = accepted.stage === 'perimeter'
+        let radius = accepted.stage === 'perimeter'
           ? perimeterSpacing
           : accepted.stage === 'infill'
             ? infillSpacing
             : minimaSuppressionRadius;
+
+        // Custom Overrides for MacroFace and CylinderSides regions
+        if (cand.regionType === 'CylinderSides' || accepted.regionType === 'CylinderSides') {
+          radius = trunkWidth * 3.0;
+        } else if (cand.regionType === 'MacroFace' || accepted.regionType === 'MacroFace') {
+          radius = trunkWidth;
+        }
 
         if (distance2D(cand.pos, accepted.pos) < radius) {
           return true; // Suppressed!
@@ -870,12 +878,15 @@ export async function generateSupportsFromPainter(
 
   // 5. Capture snapshot after execution and push a unified history step
   const afterState = getSupportSnapshot();
+  const afterRegions = new Map(supportPainterStore.getSnapshot().regions);
 
   pushHistory({
     type: SUPPORT_EDIT_REPLACE,
     payload: {
       before: beforeState,
       after: afterState,
+      painterRegionsBefore: beforeRegions,
+      painterRegionsAfter: afterRegions,
     },
   });
 

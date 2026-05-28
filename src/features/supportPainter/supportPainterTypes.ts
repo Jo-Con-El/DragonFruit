@@ -45,6 +45,7 @@ export interface ROIRegion {
   brush?:          BrushMetadata;
   support?:        SupportGenerationMetadata;
   modelId?:        string;          // Optional model reference for multi-model sheets
+  loadedFromVoxl?: boolean;         // True if imported from a VOXL file
 }
 
 // ─── Stage-Based Suppression Configurations [STAGE_SUPPRESSION] ───────────────
@@ -174,7 +175,6 @@ export interface VoxlROIRegion {
   id:              string;
   brushType:       BrushType;
   seedTriangleId:  number;
-  triangleIds?:    number[];   // Optional in version 2 (reconstructed from boundary-loops or RLE fallback)
   color:           string;
   createdAt:       number;
 

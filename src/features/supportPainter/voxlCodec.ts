@@ -68,7 +68,6 @@ export function serializeROIsForVoxl(
         seedTriangleId: r.seedTriangleId,
         color: r.color,
         createdAt: r.createdAt,
-        triangleIds: Array.from(r.triangleIds), // Retain raw triangle array for backwards compatibility
         loops: r.loops,
         rleSpans,
         brush: r.brush,
@@ -103,13 +102,10 @@ export function deserializeROIsFromVoxl(
       result.set(targetModelId, modelMap);
     }
 
-    // Reconstruct triangle IDs using either RLE spans or triangleIds (fallback for legacy files)
-    let triangleIdsList: number[] = [];
-    if (r.rleSpans && r.rleSpans.length > 0) {
-      triangleIdsList = decompressRLE(r.rleSpans);
-    } else if (r.triangleIds) {
-      triangleIdsList = r.triangleIds;
-    }
+    // Reconstruct triangle IDs from RLE spans
+    const triangleIdsList = r.rleSpans && r.rleSpans.length > 0
+      ? decompressRLE(r.rleSpans)
+      : [];
 
     modelMap.set(r.id, {
       id: r.id,
@@ -124,6 +120,7 @@ export function deserializeROIsFromVoxl(
       brush: r.brush,
       support: r.support,
       modelId: targetModelId,
+      loadedFromVoxl: true,
     });
   }
   return result;

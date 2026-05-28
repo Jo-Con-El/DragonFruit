@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { supportPainterStore, useSupportPainterState } from './supportPainterStore';
 import { PAINT_ROI_ADD, PAINT_ROI_REMOVE, PAINT_ROI_STRIP } from './supportPainterHistoryTypes';
 import { pushHistory, registerHistoryHandler } from '@/history/historyStore';
+import { SUPPORT_EDIT_REPLACE } from '@/supports/history/actionTypes';
 import { type ROIRegion } from './supportPainterTypes';
 import { buildClientAdjacencyMap, proposeRegionOnClient } from './useClientAdjacencyMap';
 
@@ -55,10 +56,24 @@ export function useSupportPainterManager(
       }
     });
 
+    const undoReplace = registerHistoryHandler(SUPPORT_EDIT_REPLACE, (action, direction) => {
+      const payload = action.payload as {
+        painterRegionsBefore?: Map<string, ROIRegion>;
+        painterRegionsAfter?: Map<string, ROIRegion>;
+      };
+      if (!payload.painterRegionsBefore || !payload.painterRegionsAfter) return;
+      if (direction === 'undo') {
+        supportPainterStore.restoreRegions(payload.painterRegionsBefore);
+      } else {
+        supportPainterStore.restoreRegions(payload.painterRegionsAfter);
+      }
+    });
+
     return () => {
       undoAdd();
       undoRemove();
       undoStrip();
+      undoReplace();
     };
   }, [isActive]);
 

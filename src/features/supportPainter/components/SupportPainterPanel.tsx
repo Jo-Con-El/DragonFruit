@@ -13,13 +13,20 @@ import {
   ChevronUp,
   Trash2,
   RefreshCw,
+  Eraser,
 } from 'lucide-react';
 import { Card, CardHeader, IconButton, Button, Toast, ToastViewport } from '@/components/ui/primitives';
 import { supportPainterStore, useSupportPainterState } from '../supportPainterStore';
 import { type BrushType, BRUSH_COLORS } from '../supportPainterTypes';
 import { generateSupportsFromPainter, regenerateSupportsForRoi } from '../supportScriptingEngine';
 import { subscribeToSettings, getSettings } from '@/supports/Settings';
-import { subscribe as subscribeToSupports, getSnapshot as getSupportsSnapshot } from '@/supports/state';
+import {
+  subscribe as subscribeToSupports,
+  getSnapshot as getSupportsSnapshot,
+  setSnapshot as setSupportSnapshot,
+} from '@/supports/state';
+import { deleteSupportsForRoi } from '@/supports/PlacementLogic/SupportModelLinker';
+import { SUPPORT_EDIT_REPLACE } from '@/supports/history/actionTypes';
 import { PAINT_ROI_STRIP } from '../supportPainterHistoryTypes';
 import { pushHistory } from '@/history/historyStore';
 
@@ -72,15 +79,55 @@ export function SupportPainterPanel({
   const activeSettings = useSyncExternalStore(subscribeToSettings, getSettings, getSettings);
   const supportState = useSyncExternalStore(subscribeToSupports, getSupportsSnapshot, getSupportsSnapshot);
   const [expandedRegions, setExpandedRegions] = useState<Record<string, boolean>>({});
+  const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
   const trunkWidth = activeSettings.shaft.diameterMm;
   const defaultSpacing = trunkWidth * 4.0;
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [expanded, setExpanded] = useState(false);  // collapsed = support mode, expanded = painter mode
 
+  // Partition regions into Pending vs Completed/Saved History
+  const regionsArray = Array.from(state.regions.values());
+  const pendingRegions = regionsArray.filter(
+    (r) => r.support === undefined && r.loops === undefined
+  );
+  const completedRegions = regionsArray.filter(
+    (r) => r.support !== undefined || r.loops !== undefined
+  );
+
+  const purgeEmptySessionRois = () => {
+    const currentSnapshot = getSupportsSnapshot();
+    const currentRegions = Array.from(supportPainterStore.getSnapshot().regions.values());
+    const nextRegionsMap = new Map(supportPainterStore.getSnapshot().regions);
+
+    let changed = false;
+    for (const region of currentRegions) {
+      const hasCompleted = region.support !== undefined || region.loops !== undefined;
+      if (hasCompleted && !region.loadedFromVoxl) {
+        const regionTrunks = Object.values(currentSnapshot.trunks).filter(t => t.roiId === region.id);
+        const regionBranches = Object.values(currentSnapshot.branches).filter(b => b.roiId === region.id);
+        const regionLeaves = Object.values(currentSnapshot.leaves).filter(l => l.roiId === region.id);
+        const regionTwigs = Object.values(currentSnapshot.twigs).filter(t => t.roiId === region.id);
+        const regionSticks = Object.values(currentSnapshot.sticks).filter(s => s.roiId === region.id);
+        const regionAnchors = Object.values(currentSnapshot.anchors).filter(a => a.roiId === region.id);
+        const totalChildSupports = regionTrunks.length + regionBranches.length + regionLeaves.length + regionTwigs.length + regionSticks.length + regionAnchors.length;
+
+        if (totalChildSupports === 0) {
+          nextRegionsMap.delete(region.id);
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      supportPainterStore.restoreRegions(nextRegionsMap);
+    }
+  };
+
   // Deactivate painter if panel unmounts while still expanded
   useEffect(() => {
     return () => {
+      purgeEmptySessionRois();
       supportPainterStore.deactivate();
     };
   }, []);
@@ -98,25 +145,44 @@ export function SupportPainterPanel({
       supportPainterStore.activate();
       onModeChange?.('supportPainter');
     } else {
+      purgeEmptySessionRois();
       supportPainterStore.deactivate();
       onModeChange?.('support');
     }
   };
 
   const handleGenerate = async () => {
-    if (!activeModelId || !getActiveMesh || state.regions.size === 0) return;
+    if (!activeModelId || !getActiveMesh || pendingRegions.length === 0) return;
     const mesh = getActiveMesh();
     if (!mesh) return;
 
     setIsGenerating(true);
     try {
-      await generateSupportsFromPainter(activeModelId, mesh, Array.from(state.regions.values()));
+      await generateSupportsFromPainter(activeModelId, mesh, pendingRegions);
       // Preserve ROIs in store for non-destructive recalculation/dashboard
     } catch (err) {
       console.error('[SupportPainterPanel] Generation failed', err);
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleRemoveSupportsForRoi = (regionId: string) => {
+    const beforeState = getSupportsSnapshot();
+    const nextState = deleteSupportsForRoi(beforeState, regionId);
+    const beforeRegions = new Map(supportPainterStore.getSnapshot().regions);
+    setSupportSnapshot(nextState);
+
+    pushHistory({
+      type: SUPPORT_EDIT_REPLACE,
+      description: 'Remove supports for region',
+      payload: {
+        before: beforeState,
+        after: nextState,
+        painterRegionsBefore: beforeRegions,
+        painterRegionsAfter: beforeRegions,
+      },
+    });
   };
 
   const activeDetails = BRUSH_DETAILS[state.activeBrush] || BRUSH_DETAILS.MacroFace;
@@ -285,16 +351,16 @@ export function SupportPainterPanel({
             )}
           </div>
 
-          {/* Painted Regions List */}
+          {/* Painted Regions List (Pending Only) */}
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <span
                 className="text-[10px] uppercase tracking-wider font-bold"
                 style={{ color: 'var(--text-muted)' }}
               >
-                Painted Regions ({state.regions.size})
+                Painted Regions ({pendingRegions.length})
               </span>
-              {state.regions.size > 0 && (
+              {pendingRegions.length > 0 && (
                 <button
                   type="button"
                   onClick={() => supportPainterStore.clearAll()}
@@ -306,31 +372,21 @@ export function SupportPainterPanel({
               )}
             </div>
 
-            <div className="max-h-[180px] overflow-y-auto pr-1 flex flex-col gap-1.5 scrollbar-thin">
-              {state.regions.size === 0 ? (
+            <div className="max-h-[140px] overflow-y-auto pr-1 flex flex-col gap-1.5 scrollbar-thin">
+              {pendingRegions.length === 0 ? (
                 <div
-                  className="flex flex-col items-center justify-center py-5 text-center text-[11px] italic"
+                  className="flex flex-col items-center justify-center py-3 text-center text-[11px] italic"
                   style={{ color: 'var(--text-muted)' }}
                 >
                   {state.directGenEnabled
                     ? 'Direct Generation Mode: Click mesh to instantly place supports'
-                    : 'No regions painted yet'}
+                    : 'No pending regions painted yet'}
                 </div>
               ) : (
-                Array.from(state.regions.values())
+                pendingRegions
                   .sort((a, b) => b.createdAt - a.createdAt)
                   .map((region) => {
                     const details = BRUSH_DETAILS[region.brushType];
-                    const isRegionExpanded = !!expandedRegions[region.id];
-
-                    // Fetch generated support entities for this ROI region
-                    const regionTrunks = Object.values(supportState.trunks).filter(t => t.roiId === region.id);
-                    const regionBranches = Object.values(supportState.branches).filter(b => b.roiId === region.id);
-                    const regionLeaves = Object.values(supportState.leaves).filter(l => l.roiId === region.id);
-                    const regionTwigs = Object.values(supportState.twigs).filter(t => t.roiId === region.id);
-                    const regionSticks = Object.values(supportState.sticks).filter(s => s.roiId === region.id);
-                    const regionAnchors = Object.values(supportState.anchors).filter(a => a.roiId === region.id);
-                    const totalChildSupports = regionTrunks.length + regionBranches.length + regionLeaves.length + regionTwigs.length + regionSticks.length + regionAnchors.length;
 
                     return (
                       <div
@@ -343,26 +399,8 @@ export function SupportPainterPanel({
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5 min-w-0">
-                            {/* Chevron Toggle button */}
-                            <IconButton
-                              onClick={() => {
-                                setExpandedRegions(prev => ({
-                                  ...prev,
-                                  [region.id]: !prev[region.id],
-                                }));
-                              }}
-                              className="!p-0.5"
-                              title={isRegionExpanded ? "Collapse breakdown" : "Expand breakdown"}
-                            >
-                              {isRegionExpanded ? (
-                                <ChevronDown className="w-3.5 h-3.5" />
-                              ) : (
-                                <ChevronRight className="w-3.5 h-3.5" />
-                              )}
-                            </IconButton>
-
                             <div
-                              className="w-3 h-3 rounded border flex-shrink-0"
+                              className="w-3 h-3 rounded border flex-shrink-0 animate-pulse"
                               style={{
                                 backgroundColor: region.color,
                                 borderColor: 'var(--border-subtle)',
@@ -373,7 +411,7 @@ export function SupportPainterPanel({
                                 className="font-semibold truncate"
                                 style={{ color: 'var(--text-strong)' }}
                               >
-                                {details?.label || region.brushType}
+                                {details?.label || region.brushType} (Pending)
                               </span>
                               <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
                                 Seed #{region.seedTriangleId}
@@ -392,18 +430,6 @@ export function SupportPainterPanel({
                               {region.triangleIds.size} tri
                             </span>
                             <IconButton
-                              onClick={async () => {
-                                const activeMesh = getActiveMesh?.();
-                                if (activeModelId && activeMesh) {
-                                  await regenerateSupportsForRoi(activeModelId, activeMesh, region.id);
-                                }
-                              }}
-                              className="!p-1"
-                              title="Recalculate supports for this region"
-                            >
-                              <RefreshCw className="w-3.5 h-3.5" />
-                            </IconButton>
-                            <IconButton
                               onClick={() => supportPainterStore.removeRegion(region.id)}
                               className="!p-1"
                               title="Delete region"
@@ -412,60 +438,6 @@ export function SupportPainterPanel({
                             </IconButton>
                           </div>
                         </div>
-
-                        {/* Collapsible Support Child Breakdown */}
-                        {isRegionExpanded && (
-                          <div
-                            className="mt-1 pl-6 pr-1 py-1.5 flex flex-col gap-1 border-t text-[10px]"
-                            style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-muted)' }}
-                          >
-                            <div className="font-bold text-[9px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-strong)' }}>
-                              Child Support Breakdown ({totalChildSupports})
-                            </div>
-                            {totalChildSupports === 0 ? (
-                              <span className="italic">No supports generated yet.</span>
-                            ) : (
-                              <div className="grid grid-cols-2 gap-x-2 gap-y-1 font-medium">
-                                {regionTrunks.length > 0 && <div>Trunks: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionTrunks.length}</span></div>}
-                                {regionBranches.length > 0 && <div>Branches: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionBranches.length}</span></div>}
-                                {regionLeaves.length > 0 && <div>Leaves: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionLeaves.length}</span></div>}
-                                {regionTwigs.length > 0 && <div>Twigs: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionTwigs.length}</span></div>}
-                                {regionSticks.length > 0 && <div>Sticks: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionSticks.length}</span></div>}
-                                {regionAnchors.length > 0 && <div>Anchors: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionAnchors.length}</span></div>}
-                              </div>
-                            )}
-
-                            {/* Parameters Used */}
-                            {region.support && (
-                              <div className="mt-2 border-t pt-2 flex flex-col gap-1 text-[9px]">
-                                <div className="font-bold text-[9px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-strong)' }}>
-                                  Parameters at Last Generation
-                                </div>
-                                <div className="grid grid-cols-2 gap-x-2 gap-y-1 font-medium text-[9px] leading-normal">
-                                  <div>Preset: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.presetName}</span></div>
-                                  <div>Shaft Width: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.shaftDiameterMm.toFixed(2)} mm</span></div>
-                                  <div>Perim Spacing: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.perimeterSpacingMm.toFixed(2)} mm</span></div>
-                                  <div>Infill Spacing: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.infillSpacingMm.toFixed(2)} mm</span></div>
-                                  {region.support.parameters.tipContactDiameterMm !== undefined && (
-                                    <div>Tip Contact Ø: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.tipContactDiameterMm.toFixed(2)} mm</span></div>
-                                  )}
-                                  {region.support.parameters.tipLengthMm !== undefined && (
-                                    <div>Tip Length: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.tipLengthMm.toFixed(2)} mm</span></div>
-                                  )}
-                                  {region.support.parameters.rootsDiameterMm !== undefined && (
-                                    <div>Roots Base Ø: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.rootsDiameterMm.toFixed(2)} mm</span></div>
-                                  )}
-                                  {region.support.parameters.shaftMaxAngleDeg !== undefined && (
-                                    <div>Max Overhang: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.shaftMaxAngleDeg}°</span></div>
-                                  )}
-                                  {region.support.parameters.baseFlareEnabled !== undefined && (
-                                    <div>Base Flare: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.baseFlareEnabled ? 'Enabled' : 'Disabled'}</span></div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
                       </div>
                     );
                   })
@@ -473,71 +445,286 @@ export function SupportPainterPanel({
             </div>
           </div>
 
-          {/* ROI Maintenance Utilities */}
+          {/* ROI History and Saves Rollup */}
           <div
-            className="flex flex-col gap-2 border-t pt-2.5"
+            className="flex flex-col gap-1.5 border-t pt-2.5"
             style={{ borderColor: 'var(--border-subtle)' }}
           >
-            <span
-              className="text-[10px] uppercase tracking-wider font-bold"
-              style={{ color: 'var(--text-muted)' }}
-            >
-              Maintenance Utilities
-            </span>
-            <div className="grid grid-cols-2 gap-1.5">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  const beforeRegions = new Map(state.regions);
-                  pushHistory({
-                    type: PAINT_ROI_STRIP,
-                    description: 'Strip model ROI regions',
-                    payload: { beforeRegions },
-                  });
-                  supportPainterStore.stripRoiData(activeModelId);
-                }}
-                className="w-full !text-[10px] py-1"
-                disabled={state.regions.size === 0}
-              >
-                Strip ROI (Model)
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  const beforeRegions = new Map(state.regions);
-                  pushHistory({
-                    type: PAINT_ROI_STRIP,
-                    description: 'Strip all ROI regions',
-                    payload: { beforeRegions },
-                  });
-                  supportPainterStore.stripRoiData();
-                }}
-                className="w-full !text-[10px] py-1"
-                disabled={state.regions.size === 0}
-              >
-                Strip ROI (Global)
-              </Button>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <IconButton
+                  onClick={() => setIsHistoryExpanded(!isHistoryExpanded)}
+                  className="!p-0.5 animate-none"
+                  title={isHistoryExpanded ? "Collapse History" : "Expand History"}
+                >
+                  {isHistoryExpanded ? (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  )}
+                </IconButton>
+                <span
+                  className="text-[10px] uppercase tracking-wider font-bold cursor-pointer select-none"
+                  onClick={() => setIsHistoryExpanded(!isHistoryExpanded)}
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  ROI History and Saves ({completedRegions.length})
+                </span>
+              </div>
             </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={async () => {
-                const activeMesh = getActiveMesh?.();
-                if (activeModelId && activeMesh && state.regions.size > 0) {
-                  // Batch regenerate supports sequentially for each region
-                  for (const regionId of state.regions.keys()) {
-                    await regenerateSupportsForRoi(activeModelId, activeMesh, regionId);
-                  }
-                }
-              }}
-              className="w-full !text-[10px] py-1 flex items-center justify-center gap-1.5 mt-0.5"
-              disabled={state.regions.size === 0}
-            >
-              <RefreshCw className="w-3 h-3" />
-              Recalculate All Supports
-            </Button>
+
+            {isHistoryExpanded && (
+              <div className="flex flex-col gap-2.5 mt-1">
+                <div className="max-h-[180px] overflow-y-auto pr-1 flex flex-col gap-1.5 scrollbar-thin">
+                  {completedRegions.length === 0 ? (
+                    <div
+                      className="text-center py-4 text-[11px] italic"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      No saved or generated ROIs
+                    </div>
+                  ) : (
+                    completedRegions
+                      .sort((a, b) => b.createdAt - a.createdAt)
+                      .map((region) => {
+                        const details = BRUSH_DETAILS[region.brushType];
+                        const isRegionExpanded = !!expandedRegions[region.id];
+
+                        // Fetch generated support entities for this ROI region
+                        const regionTrunks = Object.values(supportState.trunks).filter(t => t.roiId === region.id);
+                        const regionBranches = Object.values(supportState.branches).filter(b => b.roiId === region.id);
+                        const regionLeaves = Object.values(supportState.leaves).filter(l => l.roiId === region.id);
+                        const regionTwigs = Object.values(supportState.twigs).filter(t => t.roiId === region.id);
+                        const regionSticks = Object.values(supportState.sticks).filter(s => s.roiId === region.id);
+                        const regionAnchors = Object.values(supportState.anchors).filter(a => a.roiId === region.id);
+                        const totalChildSupports = regionTrunks.length + regionBranches.length + regionLeaves.length + regionTwigs.length + regionSticks.length + regionAnchors.length;
+
+                        return (
+                          <div
+                            key={region.id}
+                            className="flex flex-col p-2 rounded-lg border text-xs gap-1"
+                            style={{
+                              background: 'var(--surface-2)',
+                              borderColor: 'var(--border-subtle)',
+                            }}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {/* Chevron Toggle button */}
+                                <IconButton
+                                  onClick={() => {
+                                    setExpandedRegions(prev => ({
+                                      ...prev,
+                                      [region.id]: !prev[region.id],
+                                    }));
+                                  }}
+                                  className="!p-0.5"
+                                  title={isRegionExpanded ? "Collapse breakdown" : "Expand breakdown"}
+                                >
+                                  {isRegionExpanded ? (
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                  )}
+                                </IconButton>
+
+                                <div
+                                  className="w-3 h-3 rounded border flex-shrink-0"
+                                  style={{
+                                    backgroundColor: region.color,
+                                    borderColor: 'var(--border-subtle)',
+                                  }}
+                                />
+                                <div className="flex flex-col min-w-0">
+                                  <div className="flex items-center gap-1 min-w-0">
+                                    <span
+                                      className="font-semibold truncate"
+                                      style={{ color: totalChildSupports === 0 ? 'var(--warning, #f59e0b)' : 'var(--text-strong)' }}
+                                    >
+                                      {details?.label || region.brushType}
+                                    </span>
+                                    {totalChildSupports === 0 && (
+                                      <span
+                                        className="text-[9px] font-bold px-1 py-0.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-500 flex-shrink-0"
+                                        style={{ color: 'var(--warning, #f59e0b)' }}
+                                      >
+                                        No supports placed
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
+                                    Seed #{region.seedTriangleId}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <span
+                                  className="text-[10px] px-1.5 py-0.5 rounded border font-semibold"
+                                  style={{
+                                    background: 'var(--surface-1)',
+                                    borderColor: 'var(--border-subtle)',
+                                    color: 'var(--text-muted)',
+                                  }}
+                                >
+                                  {region.triangleIds.size} tri
+                                </span>
+                                <IconButton
+                                  onClick={async () => {
+                                    const activeMesh = getActiveMesh?.();
+                                    if (activeModelId && activeMesh) {
+                                      await regenerateSupportsForRoi(activeModelId, activeMesh, region.id);
+                                    }
+                                  }}
+                                  className="!p-1"
+                                  title="Recalculate supports for this region"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                </IconButton>
+                                <IconButton
+                                  onClick={() => handleRemoveSupportsForRoi(region.id)}
+                                  className="!p-1"
+                                  disabled={totalChildSupports === 0}
+                                  title="Remove supports for this region only"
+                                >
+                                  <Eraser className="w-3.5 h-3.5" style={{ color: totalChildSupports === 0 ? 'var(--text-muted)' : 'var(--warning, #f59e0b)' }} />
+                                </IconButton>
+                                <IconButton
+                                  onClick={() => supportPainterStore.removeRegion(region.id)}
+                                  className="!p-1"
+                                  title="Delete region"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </IconButton>
+                              </div>
+                            </div>
+
+                            {/* Collapsible Support Child Breakdown */}
+                            {isRegionExpanded && (
+                              <div
+                                className="mt-1 pl-6 pr-1 py-1.5 flex flex-col gap-1 border-t text-[10px]"
+                                style={{ borderColor: 'var(--border-subtle)', color: 'var(--text-muted)' }}
+                              >
+                                <div className="font-bold text-[9px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-strong)' }}>
+                                  Child Support Breakdown ({totalChildSupports})
+                                </div>
+                                {totalChildSupports === 0 ? (
+                                  <span className="italic text-[9px]">No supports generated.</span>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-x-2 gap-y-1 font-medium text-[9px]">
+                                    {regionTrunks.length > 0 && <div>Trunks: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionTrunks.length}</span></div>}
+                                    {regionBranches.length > 0 && <div>Branches: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionBranches.length}</span></div>}
+                                    {regionLeaves.length > 0 && <div>Leaves: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionLeaves.length}</span></div>}
+                                    {regionTwigs.length > 0 && <div>Twigs: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionTwigs.length}</span></div>}
+                                    {regionSticks.length > 0 && <div>Sticks: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionSticks.length}</span></div>}
+                                    {regionAnchors.length > 0 && <div>Anchors: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{regionAnchors.length}</span></div>}
+                                  </div>
+                                )}
+
+                                {/* Parameters Used */}
+                                {region.support && (
+                                  <div className="mt-2 border-t pt-2 flex flex-col gap-1 text-[9px]">
+                                    <div className="font-bold text-[9px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-strong)' }}>
+                                      Parameters at Last Generation
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 font-medium text-[9px] leading-normal">
+                                      <div>Preset: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.presetName}</span></div>
+                                      <div>Shaft Width: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.shaftDiameterMm.toFixed(2)} mm</span></div>
+                                      <div>Perim Spacing: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.perimeterSpacingMm.toFixed(2)} mm</span></div>
+                                      <div>Infill Spacing: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.infillSpacingMm.toFixed(2)} mm</span></div>
+                                      {region.support.parameters.tipContactDiameterMm !== undefined && (
+                                        <div>Tip Contact Ø: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.tipContactDiameterMm.toFixed(2)} mm</span></div>
+                                      )}
+                                      {region.support.parameters.tipLengthMm !== undefined && (
+                                        <div>Tip Length: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.tipLengthMm.toFixed(2)} mm</span></div>
+                                      )}
+                                      {region.support.parameters.rootsDiameterMm !== undefined && (
+                                        <div>Roots Base Ø: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.rootsDiameterMm.toFixed(2)} mm</span></div>
+                                      )}
+                                      {region.support.parameters.shaftMaxAngleDeg !== undefined && (
+                                        <div>Max Overhang: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.shaftMaxAngleDeg}°</span></div>
+                                      )}
+                                      {region.support.parameters.baseFlareEnabled !== undefined && (
+                                        <div>Base Flare: <span className="font-bold" style={{ color: 'var(--text-strong)' }}>{region.support.parameters.baseFlareEnabled ? 'Enabled' : 'Disabled'}</span></div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+
+                {/* ROI Maintenance Utilities inside rollup */}
+                <div
+                  className="flex flex-col gap-2 border-t pt-2.5"
+                  style={{ borderColor: 'var(--border-subtle)' }}
+                >
+                  <span
+                    className="text-[10px] uppercase tracking-wider font-bold"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Maintenance Utilities
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const beforeRegions = new Map(state.regions);
+                        pushHistory({
+                          type: PAINT_ROI_STRIP,
+                          description: 'Strip model ROI regions',
+                          payload: { beforeRegions },
+                        });
+                        supportPainterStore.stripRoiData(activeModelId);
+                      }}
+                      className="w-full !text-[10px] py-1"
+                      disabled={completedRegions.length === 0}
+                    >
+                      Strip ROI (Model)
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const beforeRegions = new Map(state.regions);
+                        pushHistory({
+                          type: PAINT_ROI_STRIP,
+                          description: 'Strip all ROI regions',
+                          payload: { beforeRegions },
+                        });
+                        supportPainterStore.stripRoiData();
+                      }}
+                      className="w-full !text-[10px] py-1"
+                      disabled={completedRegions.length === 0}
+                    >
+                      Strip ROI (Global)
+                    </Button>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={async () => {
+                      const activeMesh = getActiveMesh?.();
+                      if (activeModelId && activeMesh && completedRegions.length > 0) {
+                        // Batch regenerate supports sequentially for each completed region
+                        for (const region of completedRegions) {
+                          await regenerateSupportsForRoi(activeModelId, activeMesh, region.id);
+                        }
+                      }
+                    }}
+                    className="w-full !text-[10px] py-1 flex items-center justify-center gap-1.5 mt-0.5"
+                    disabled={completedRegions.length === 0}
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Recalculate All Supports
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Spacing Overrides [SPACING_OVERRIDES_UI] */}
@@ -624,10 +811,10 @@ export function SupportPainterPanel({
             variant="accent"
             size="sm"
             className="w-full"
-            disabled={state.regions.size === 0 || isGenerating}
+            disabled={pendingRegions.length === 0 || isGenerating}
             onClick={handleGenerate}
           >
-            {isGenerating ? 'Generating…' : `Generate Supports (${state.regions.size})`}
+            {isGenerating ? 'Generating…' : `Generate Supports (${pendingRegions.length})`}
           </Button>
 
         </div>

@@ -375,7 +375,7 @@ function walkPoint(map: ClientAdjacencyMap, seed: number, localUp: THREE.Vector3
 
   const queue: DijkstraState[] = [];
   if (map.faceNormals[seed].dot(localUp) <= 0.2) {
-    const rLimit = 8.0; // mm
+    const rLimit = 4.0; // mm
     dists.set(seed, 0);
     queue.push({ cost: 0, face: seed });
 
