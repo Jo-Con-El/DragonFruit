@@ -10,7 +10,6 @@ import {
   WandSparkles,
   ChevronDown,
   ChevronRight,
-  X,
   Trash2,
 } from 'lucide-react';
 import { Card, CardHeader, IconButton, Button } from '@/components/ui/primitives';
@@ -55,32 +54,36 @@ const BRUSH_DETAILS: Record<
 };
 
 export function SupportPainterPanel({
-  onExit,
   activeModelId,
   getActiveMesh,
   onModeChange,
 }: {
-  onExit?: () => void;
   activeModelId?: string | null;
   getActiveMesh?: () => THREE.Mesh | null;
   onModeChange?: (mode: 'support' | 'supportPainter') => void;
 }) {
   const state = useSupportPainterState();
   const [isGenerating, setIsGenerating] = useState(false);
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);  // collapsed = support mode, expanded = painter mode
 
-  // Activate the painter on mount; deactivate on unmount
+  // Deactivate painter if panel unmounts while still expanded
   useEffect(() => {
-    supportPainterStore.activate();
     return () => {
       supportPainterStore.deactivate();
     };
   }, []);
 
-  const handleExit = () => {
-    supportPainterStore.deactivate();
-    if (onModeChange) onModeChange('support');
-    if (onExit) onExit();
+  // Chevron is the mode-switch control
+  const handleToggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next) {
+      supportPainterStore.activate();
+      onModeChange?.('supportPainter');
+    } else {
+      supportPainterStore.deactivate();
+      onModeChange?.('support');
+    }
   };
 
   const handleGenerate = async () => {
@@ -107,9 +110,9 @@ export function SupportPainterPanel({
         left={
           <>
             <IconButton
-              onClick={() => setExpanded(v => !v)}
+              onClick={handleToggle}
               className="!p-0.5"
-              title={expanded ? 'Collapse' : 'Expand'}
+              title={expanded ? 'Close Support Painter' : 'Open Support Painter'}
             >
               {expanded
                 ? <ChevronDown className="w-3 h-3" />
@@ -121,15 +124,10 @@ export function SupportPainterPanel({
             </h3>
           </>
         }
-        right={
-          <IconButton onClick={handleExit} title="Exit paint mode">
-            <X className="w-3.5 h-3.5" />
-          </IconButton>
-        }
       />
 
       {expanded && (
-        <div className="px-3 pb-3 pt-1 flex flex-col gap-3">
+      <div className="px-3 pb-3 pt-1 flex flex-col gap-3">
 
           {/* Direct Click-to-Generate Toggle */}
           <div
