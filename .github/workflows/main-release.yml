@@ -169,6 +169,10 @@ jobs:
         if: matrix.build_kind == 'flatpak'
         run: sudo apt-get install -y appstream desktop-file-utils
 
+      - name: Install Flatpak build tooling
+        if: matrix.build_kind == 'flatpak'
+        run: sudo apt-get install -y flatpak flatpak-builder
+
       - name: Build Tauri app (CEF variant on Linux)
         if: matrix.build_kind == 'flatpak'
         env:
