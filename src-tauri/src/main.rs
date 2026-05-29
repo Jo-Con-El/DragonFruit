@@ -3255,7 +3255,8 @@ fn main() {
             mesh_repair::mesh_repair_read_positions,
             support_painter::initialize_support_painter_model,
             support_painter::propose_brush_region,
-            support_painter::clear_support_painter_model
+            support_painter::clear_support_painter_model,
+            support_painter::find_all_local_minima
         ])
         .run(tauri::generate_context!())
         .expect("error while running DragonFruit desktop app");

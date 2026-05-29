@@ -103,6 +103,7 @@ export function SupportPainterPanel({
   const [editingCustomBrush, setEditingCustomBrush] = useState<CustomBrushTemplate | null>(null);
   const [expanded, setExpanded] = useState(false);  // collapsed = support mode, expanded = painter mode
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isScanning, setIsScanning] = useState(false);
   const activeSelectedIds = selectedIds.filter(id => state.regions.has(id));
 
   // Partition regions into Pending vs Completed/Saved History
@@ -244,6 +245,33 @@ export function SupportPainterPanel({
         painterRegionsAfter: nextRegions,
       },
     });
+  };
+
+  const handleScanMinima = async () => {
+    if (!activeModelId) return;
+    setIsScanning(true);
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const minimaList = await invoke<{ vertexIndex: number; position: any; seedTriangleId: number }[]>(
+        'find_all_local_minima',
+        { modelId: activeModelId }
+      );
+      
+      if (minimaList.length === 0) {
+        supportPainterStore.showToast(['No new local vertical minima detected.']);
+      } else {
+        supportPainterStore.commitMinimaIslands(minimaList);
+        supportPainterStore.showToast([
+          'Minima scan complete!',
+          `Identified and committed ${minimaList.length} island regions.`
+        ]);
+      }
+    } catch (err) {
+      console.error('[SupportPainterPanel] Minima scan failed', err);
+      supportPainterStore.showToast(['Minima scan failed.', String(err)]);
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   const activeDetails = BRUSH_DETAILS[state.activeBrush] || BRUSH_DETAILS.MacroFace;
@@ -989,6 +1017,25 @@ export function SupportPainterPanel({
                       Strip ROI (Global)
                     </Button>
                   </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleScanMinima}
+                    className="w-full !text-[10px] py-1 flex items-center justify-center gap-1.5"
+                    disabled={isScanning || !activeModelId}
+                  >
+                    {isScanning ? (
+                      <>
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        Scanning Minima...
+                      </>
+                    ) : (
+                      <>
+                        <WandSparkles className="w-3 h-3" />
+                        Auto-Detect Minima
+                      </>
+                    )}
+                  </Button>
                   <Button
                     variant="secondary"
                     size="sm"

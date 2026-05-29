@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import {
   type BrushType,
   type BrushInteractionPhase,
@@ -12,7 +13,7 @@ import {
   type CustomBrushTemplate,
   BRUSH_COLORS,
 } from './supportPainterTypes';
-import { type ClientAdjacencyMap } from './useClientAdjacencyMap';
+import { type ClientAdjacencyMap, proposeRegionOnClient } from './useClientAdjacencyMap';
 import { deserializeROIsFromVoxl } from './voxlCodec';
 import { getSnapshot as getSupportSnapshot, setSnapshot as setSupportSnapshot } from '@/supports/state';
 import { pushHistory } from '@/history/historyStore';
@@ -665,6 +666,65 @@ export const supportPainterStore = {
       updateSnapshot();
       notify();
     }
+  },
+
+  commitMinimaIslands(minimaList: { seedTriangleId: number }[]) {
+    if (!clientAdjacencyMap || minimaList.length === 0) return;
+
+    const beforeState = new Map(regions);
+    const beforeSupport = getSupportSnapshot();
+
+    const mergedTriangles = new Set<number>();
+    
+    // Choose the first scanned coordinate as the global seed for reference
+    const primarySeed = minimaList[0].seedTriangleId;
+    const dummyMatrix = new THREE.Matrix4();
+
+    for (const item of minimaList) {
+      const proposedIds = proposeRegionOnClient(
+        clientAdjacencyMap,
+        item.seedTriangleId,
+        'ManualCircle',
+        dummyMatrix,
+        0.1 // 0.2mm diameter = 0.1mm radius
+      );
+      for (const id of proposedIds) {
+        mergedTriangles.add(id);
+      }
+    }
+
+    if (mergedTriangles.size === 0) return;
+
+    // Create consolidated committed region
+    const nextRegions = new Map(regions);
+    const regionId = `auto-minima-${Date.now()}`;
+    const newRegion: ROIRegion = {
+      id: regionId,
+      brushType: 'ManualCircle',
+      seedTriangleId: primarySeed,
+      triangleIds: mergedTriangles,
+      color: '#06B6D4', // Cyan color
+      proposedOnly: false,
+      createdAt: Date.now(),
+    };
+
+    nextRegions.set(regionId, newRegion);
+    regions = nextRegions;
+    triangleColorMap = _recomputeTriangleColorMap();
+    updateSnapshot();
+    notify();
+
+    // Push transaction to history
+    pushHistory({
+      type: SUPPORT_EDIT_REPLACE,
+      description: `Auto-detect minima islands`,
+      payload: {
+        before: beforeSupport,
+        after: getSupportSnapshot(),
+        painterRegionsBefore: beforeState,
+        painterRegionsAfter: nextRegions,
+      },
+    });
   },
 };
 

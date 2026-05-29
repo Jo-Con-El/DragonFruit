@@ -544,3 +544,132 @@ pub async fn propose_brush_region(
         }
     }
 }
+
+/// A detected local vertical minimum.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalMinimum {
+    pub vertex_index: u32,
+    pub position: Vec3,
+    pub seed_triangle_id: u32,
+}
+
+/// Tauri IPC Command: Walks the model adjacency graph to locate all local vertical minima.
+/// A vertex is classified as a local vertical minimum if its Z height is strictly
+/// less than all its immediate graph neighbor vertices.
+#[tauri::command]
+pub async fn find_all_local_minima(model_id: String) -> Result<Vec<LocalMinimum>, String> {
+    let cached = {
+        let cache_lock = get_model_cache().lock().map_err(|e| e.to_string())?;
+        cache_lock.get(&model_id).ok_or_else(|| {
+            format!("Model {} is not initialized in the support painter cache.", model_id)
+        })?.clone()
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let mesh = &cached.mesh;
+        let tri_count = mesh.triangle_count();
+        let vert_count = mesh.vertex_count();
+
+        // 1. Build vertex-to-vertex adjacency map and vertex-to-face seed map
+        let mut adj_vertices = vec![HashSet::new(); vert_count];
+        let mut vert_to_face = vec![u32::MAX; vert_count];
+
+        for fi in 0..tri_count {
+            let tri = mesh.triangles[fi];
+            let face_id = fi as u32;
+
+            for &(u, v, w) in &[(tri[0], tri[1], tri[2]), (tri[1], tri[2], tri[0]), (tri[2], tri[0], tri[1])] {
+                adj_vertices[u as usize].insert(v);
+                adj_vertices[u as usize].insert(w);
+                vert_to_face[u as usize] = face_id;
+            }
+        }
+
+        // 2. Scan vertices to isolate local minima
+        let mut local_minima = Vec::new();
+        for vi in 0..vert_count {
+            let z_i = mesh.positions[vi].z;
+            let mut is_minimum = true;
+
+            let neighbors = &adj_vertices[vi];
+            if neighbors.is_empty() {
+                continue;
+            }
+
+            for &neighbor in neighbors {
+                if mesh.positions[neighbor as usize].z <= z_i {
+                    is_minimum = false;
+                    break;
+                }
+            }
+
+            if is_minimum {
+                local_minima.push(LocalMinimum {
+                    vertex_index: vi as u32,
+                    position: mesh.positions[vi],
+                    seed_triangle_id: vert_to_face[vi],
+                });
+            }
+        }
+
+        log::info!(
+            "[support-painter] Minima scanner complete for model {}. Identified {} local minima.",
+            model_id,
+            local_minima.len()
+        );
+
+        Ok(local_minima)
+    })
+    .await
+    .map_err(|e| format!("Minima scanner task panicked: {e}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_local_minima_scanner() {
+        // Flat triangle soup for a downward-pointing pyramid:
+        // v0: (0, 0, -1) (Valley minima)
+        // v1: (-1, -1, 0)
+        // v2: (1, -1, 0)
+        // v3: (1, 1, 0)
+        // v4: (-1, 1, 0)
+        let soup = vec![
+            // T0: [v0, v2, v1]
+            0.0, 0.0, -1.0,   1.0, -1.0, 0.0,  -1.0, -1.0, 0.0,
+            // T1: [v0, v3, v2]
+            0.0, 0.0, -1.0,   1.0, 1.0, 0.0,   1.0, -1.0, 0.0,
+            // T2: [v0, v4, v3]
+            0.0, 0.0, -1.0,  -1.0, 1.0, 0.0,   1.0, 1.0, 0.0,
+            // T3: [v0, v1, v4]
+            0.0, 0.0, -1.0,  -1.0, -1.0, 0.0,  -1.0, 1.0, 0.0,
+        ];
+
+        let mesh = IndexedMesh::from_triangle_soup(&soup, 1e-5);
+        assert_eq!(mesh.vertex_count(), 5);
+
+        // Build adjacency map
+        let mut adj_vertices = vec![HashSet::new(); mesh.vertex_count()];
+        for tri in &mesh.triangles {
+            for &(u, v, w) in &[(tri[0], tri[1], tri[2]), (tri[1], tri[2], tri[0]), (tri[2], tri[0], tri[1])] {
+                adj_vertices[u as usize].insert(v);
+                adj_vertices[u as usize].insert(w);
+            }
+        }
+
+        // v0 has index 0, check if it is vertical minima
+        let z_0 = mesh.positions[0].z;
+        assert_eq!(z_0, -1.0);
+
+        let mut is_minimum = true;
+        for &neighbor in &adj_vertices[0] {
+            if mesh.positions[neighbor as usize].z <= z_0 {
+                is_minimum = false;
+            }
+        }
+        assert!(is_minimum);
+    }
+}
