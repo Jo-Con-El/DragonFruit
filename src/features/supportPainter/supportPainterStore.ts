@@ -41,8 +41,8 @@ const DEFAULT_SUPPRESSION_SETTINGS: SuppressionSettings = {
     types: ['minima'],
   },
   perimeter: {
-    mode: 'all',
-    types: ['minima', 'perimeter'],
+    mode: 'none',
+    types: [],
   },
   infill: {
     mode: 'all',

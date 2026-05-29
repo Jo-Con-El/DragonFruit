@@ -422,6 +422,7 @@ export function SupportProxyMeshLayer({
   const supportTwigs = supportState.twigs;
   const supportSticks = supportState.sticks;
   const supportBraces = supportState.braces;
+  const supportAnchors = supportState.anchors;
   const kickstandKickstands = kickstandState.kickstands;
   const kickstandRoots = kickstandState.roots;
   const kickstandKnots = kickstandState.knots;
@@ -1112,6 +1113,7 @@ export function SupportProxyMeshLayer({
     supportTwigs,
     supportSticks,
     supportBraces,
+    supportAnchors,
     kickstandKickstands,
     kickstandRoots,
     kickstandKnots,
