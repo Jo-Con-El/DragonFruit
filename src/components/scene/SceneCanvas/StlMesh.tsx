@@ -876,7 +876,9 @@ if (uDitherAmount > 0.0) {
             return;
           }
 
-          if (mode === 'support' && onActiveModelChange && !isActiveModel) {
+          const isShiftPressed = e.shiftKey || false;
+
+          if ((mode === 'support' || (mode === 'supportPainter' && isShiftPressed)) && onActiveModelChange && !isActiveModel) {
             e.stopPropagation();
             onActiveModelChange(modelId);
 
@@ -886,7 +888,7 @@ if (uDitherAmount > 0.0) {
           }
 
           // Support placement in support mode
-          if (mode === 'support' && onSupportClick) {
+          if ((mode === 'support' || (mode === 'supportPainter' && isShiftPressed)) && onSupportClick) {
             if (blockSupportPlacement) return;
 
             // When cross-section is active and a visible support is behind
@@ -1018,20 +1020,26 @@ if (uDitherAmount > 0.0) {
             }
           }
 
+          const isShiftPressed = e.shiftKey || false;
+
           if (mode === 'supportPainter') {
-            if (isGizmoHoverCategory || isSupportLikeHoverCategory) {
+            if (isShiftPressed) {
               supportPainterStore.setHoveredTriangle(null);
-            } else if (isActiveModel) {
-              const faceIndex = e.faceIndex;
-              if (faceIndex !== undefined) {
-                supportPainterStore.setHoveredTriangle(faceIndex);
-              }
             } else {
-              supportPainterStore.setHoveredTriangle(null);
+              if (isGizmoHoverCategory || isSupportLikeHoverCategory) {
+                supportPainterStore.setHoveredTriangle(null);
+              } else if (isActiveModel) {
+                const faceIndex = e.faceIndex;
+                if (faceIndex !== undefined) {
+                  supportPainterStore.setHoveredTriangle(faceIndex);
+                }
+              } else {
+                supportPainterStore.setHoveredTriangle(null);
+              }
             }
           }
 
-          if (mode === 'support' && onSupportHover) {
+          if ((mode === 'support' || (mode === 'supportPainter' && isShiftPressed)) && onSupportHover) {
             // Mute hover when placement is blocked
             if (blockSupportPlacement) return;
 
@@ -1098,7 +1106,9 @@ if (uDitherAmount > 0.0) {
             return;
           }
 
-          if (mode === 'supportPainter' && isActiveModel && e.button === 0) {
+          const isShiftPressed = e.shiftKey || false;
+
+          if (mode === 'supportPainter' && !isShiftPressed && isActiveModel && e.button === 0) {
             e.stopPropagation();
             const faceIndex = e.faceIndex;
             if (faceIndex !== undefined && faceIndex !== null) {

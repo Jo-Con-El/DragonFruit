@@ -137,6 +137,12 @@ export interface SupportPainterToast {
   lines: string[];
 }
 
+export interface LocalMinimum {
+  vertexIndex: number;
+  position: { x: number; y: number; z: number };
+  seedTriangleId: number;
+}
+
 // ─── Shader Data Types ───────────────────────────────────────────────────────
 
 // Flat map from triangle index → packed RGBA color (for DataTexture upload).
@@ -151,6 +157,7 @@ export interface SupportPainterState {
   interactionPhase:       BrushInteractionPhase;
   modifierKeys:           BrushModifierKeys;
   regions:                Map<string, ROIRegion>;
+  scannedMinima:          LocalMinimum[];
 
   // Derived / cached — recomputed by the store whenever `regions` changes.
   // Passed directly to the WebGL shader as a DataTexture.

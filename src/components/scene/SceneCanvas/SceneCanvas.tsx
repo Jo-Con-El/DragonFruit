@@ -6195,16 +6195,16 @@ export function SceneCanvas({
               )}
 
               {/* Branch Placement Controller - handles snapping logic */}
-              {mode === 'support' && <BranchPlacementController />}
+              {(mode === 'support' || (mode === 'supportPainter' && painterState.modifierKeys.shift)) && <BranchPlacementController />}
 
               {/* Leaf Placement Controller - handles snapping logic */}
-              {mode === 'support' && <LeafPlacementController />}
+              {(mode === 'support' || (mode === 'supportPainter' && painterState.modifierKeys.shift)) && <LeafPlacementController />}
 
               {/* Brace Placement Controller - handles snapping logic */}
-              {mode === 'support' && <BracePlacementController />}
+              {(mode === 'support' || (mode === 'supportPainter' && painterState.modifierKeys.shift)) && <BracePlacementController />}
 
               {/* Kickstand Placement Controller - handles Ctrl-hover preview and click placement */}
-              {mode === 'support' && <KickstandPlacementController />}
+              {(mode === 'support' || (mode === 'supportPainter' && painterState.modifierKeys.shift)) && <KickstandPlacementController />}
 
               {renderSceneOverlays?.()}
 

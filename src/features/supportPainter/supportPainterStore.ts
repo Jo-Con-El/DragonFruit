@@ -11,6 +11,7 @@ import {
   type SuppressionSettings,
   type SupportPainterToast,
   type CustomBrushTemplate,
+  type LocalMinimum,
   BRUSH_COLORS,
 } from './supportPainterTypes';
 import { type ClientAdjacencyMap, proposeRegionOnClient } from './useClientAdjacencyMap';
@@ -68,6 +69,7 @@ let activeCustomBrushId: string | null = null;
 
 // ─── Version 4 Manual Geodesic Brushes State ───
 let brushRadiusMm = 4.0;
+let scannedMinima: LocalMinimum[] = [];
 
 const LOCAL_STORAGE_KEY = 'dragonfruit.support-painter.custom-brushes';
 
@@ -108,6 +110,7 @@ let storeSnapshot: SupportPainterState = {
   interactionPhase,
   modifierKeys,
   regions,
+  scannedMinima: [],
   triangleColorMap,
   hoveredTriangleId,
   proposedTriangleIds,
@@ -140,6 +143,7 @@ function updateSnapshot() {
     interactionPhase,
     modifierKeys,
     regions: new Map(regions),
+    scannedMinima: [...scannedMinima],
     triangleColorMap: new Map(triangleColorMap),
     hoveredTriangleId,
     proposedTriangleIds: new Set(proposedTriangleIds),
@@ -212,6 +216,7 @@ export const supportPainterStore = {
     interactionPhase = 'Idle';
     hoveredTriangleId = null;
     proposedTriangleIds.clear();
+    scannedMinima = [];
     clientAdjacencyMap = null; // Clean up memory cache
     triangleColorMap = _recomputeTriangleColorMap();
     updateSnapshot();
@@ -350,6 +355,7 @@ export const supportPainterStore = {
     }
     proposedTriangleIds.clear();
     hoveredTriangleId = null;
+    scannedMinima = [];
     triangleColorMap = _recomputeTriangleColorMap();
     updateSnapshot();
     notify();
@@ -396,6 +402,7 @@ export const supportPainterStore = {
     regions.clear();
     proposedTriangleIds.clear();
     hoveredTriangleId = null;
+    scannedMinima = [];
     triangleColorMap = _recomputeTriangleColorMap();
     updateSnapshot();
     notify();
@@ -474,6 +481,7 @@ export const supportPainterStore = {
     }
     proposedTriangleIds.clear();
     hoveredTriangleId = null;
+    scannedMinima = [];
     triangleColorMap = _recomputeTriangleColorMap();
     updateSnapshot();
     notify();
@@ -725,6 +733,18 @@ export const supportPainterStore = {
         painterRegionsAfter: nextRegions,
       },
     });
+  },
+
+  setScannedMinima(minima: LocalMinimum[]) {
+    scannedMinima = minima;
+    updateSnapshot();
+    notify();
+  },
+
+  clearScannedMinima() {
+    scannedMinima = [];
+    updateSnapshot();
+    notify();
   },
 };
 

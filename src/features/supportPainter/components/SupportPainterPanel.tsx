@@ -81,6 +81,82 @@ const BRUSH_DETAILS: Record<
   },
 };
 
+function getSupportTips(supportState: any, activeModelId: string): THREE.Vector3[] {
+  const tips: THREE.Vector3[] = [];
+
+  const pushCone = (cone?: any) => {
+    if (cone && cone.pos) {
+      tips.push(new THREE.Vector3(cone.pos.x, cone.pos.y, cone.pos.z));
+    }
+  };
+
+  const pushDisk = (disk?: any) => {
+    if (disk && disk.pos) {
+      tips.push(new THREE.Vector3(disk.pos.x, disk.pos.y, disk.pos.z));
+    }
+  };
+
+  if (!supportState) return tips;
+
+  // Trunks
+  if (supportState.trunks) {
+    for (const t of Object.values(supportState.trunks) as any[]) {
+      if (t.modelId === activeModelId) {
+        pushCone(t.contactCone);
+      }
+    }
+  }
+
+  // Branches
+  if (supportState.branches) {
+    for (const b of Object.values(supportState.branches) as any[]) {
+      if (b.modelId === activeModelId) {
+        pushCone(b.contactCone);
+      }
+    }
+  }
+
+  // Leaves
+  if (supportState.leaves) {
+    for (const l of Object.values(supportState.leaves) as any[]) {
+      if (l.modelId === activeModelId) {
+        pushCone(l.contactCone);
+      }
+    }
+  }
+
+  // Twigs
+  if (supportState.twigs) {
+    for (const tw of Object.values(supportState.twigs) as any[]) {
+      if (tw.modelId === activeModelId) {
+        pushDisk(tw.contactDiskA);
+        pushDisk(tw.contactDiskB);
+      }
+    }
+  }
+
+  // Sticks
+  if (supportState.sticks) {
+    for (const st of Object.values(supportState.sticks) as any[]) {
+      if (st.modelId === activeModelId) {
+        pushCone(st.contactConeA);
+        pushCone(st.contactConeB);
+      }
+    }
+  }
+
+  // Anchors
+  if (supportState.anchors) {
+    for (const a of Object.values(supportState.anchors) as any[]) {
+      if (a.modelId === activeModelId) {
+        pushCone(a.contactCone);
+      }
+    }
+  }
+
+  return tips;
+}
+
 export function SupportPainterPanel({
   activeModelId,
   getActiveMesh,
@@ -114,6 +190,24 @@ export function SupportPainterPanel({
   const completedRegions = regionsArray.filter(
     (r) => r.support !== undefined || r.loops !== undefined
   );
+
+  // Dynamically calculate vertical minima support coverage stats using 0.3mm threshold
+  const totalMinima = state.scannedMinima?.length ?? 0;
+  let supportedMinima = 0;
+  let unsupportedMinima = 0;
+
+  if (totalMinima > 0 && activeModelId) {
+    const tips = getSupportTips(supportState, activeModelId);
+    for (const item of state.scannedMinima || []) {
+      const minPos = new THREE.Vector3(item.position.x, item.position.y, item.position.z);
+      const isSupported = tips.some((tip) => minPos.distanceTo(tip) <= 0.3);
+      if (isSupported) {
+        supportedMinima++;
+      } else {
+        unsupportedMinima++;
+      }
+    }
+  }
 
   const purgeEmptySessionRois = () => {
     const currentSnapshot = getSupportsSnapshot();
@@ -292,13 +386,33 @@ export function SupportPainterPanel({
       );
       
       if (minimaList.length === 0) {
+        supportPainterStore.clearScannedMinima();
         supportPainterStore.showToast(['No new local vertical minima detected relative to build plate.']);
       } else {
-        supportPainterStore.commitMinimaIslands(minimaList, matrix);
-        supportPainterStore.showToast([
-          'Minima scan complete!',
-          `Identified and committed ${minimaList.length} island regions relative to build plate.`
-        ]);
+        // Store all scanned minima in painter store for dynamic HUD tracking
+        supportPainterStore.setScannedMinima(minimaList);
+
+        // Extract active support tip positions
+        const tips = getSupportTips(supportState, activeModelId);
+
+        // Filter minima list to isolate unsupported ones using 0.3mm threshold
+        const unsupportedMinima = minimaList.filter((item) => {
+          const minPos = new THREE.Vector3(item.position.x, item.position.y, item.position.z);
+          return !tips.some((tip) => minPos.distanceTo(tip) <= 0.3);
+        });
+
+        if (unsupportedMinima.length === 0) {
+          supportPainterStore.showToast([
+            'Minima scan complete!',
+            `All ${minimaList.length} vertical minima are already supported.`
+          ]);
+        } else {
+          supportPainterStore.commitMinimaIslands(unsupportedMinima, matrix);
+          supportPainterStore.showToast([
+            'Minima scan complete!',
+            `Committed ${unsupportedMinima.length} unsupported island regions (out of ${minimaList.length} total) relative to build plate.`
+          ]);
+        }
       }
     } catch (err) {
       console.error('[SupportPainterPanel] Minima scan failed', err);
@@ -435,6 +549,32 @@ export function SupportPainterPanel({
                 );
               })}
             </div>
+            {totalMinima > 0 && (
+              <div
+                className="flex flex-col gap-1 p-2 rounded-lg border text-center text-xs mt-1"
+                style={{
+                  background: 'var(--surface-2)',
+                  borderColor: 'var(--border-subtle)',
+                }}
+              >
+                <div
+                  className="font-bold uppercase tracking-wide text-[10px]"
+                  style={{ color: 'var(--text-strong)' }}
+                >
+                  Minima
+                </div>
+                <div
+                  className="text-[11px] flex justify-center gap-2"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  <span>Unsupported <strong style={{ color: 'var(--accent)' }}>{unsupportedMinima}</strong></span>
+                  <span>|</span>
+                  <span>supported <strong style={{ color: 'var(--success, #10b981)' }}>{supportedMinima}</strong></span>
+                  <span>|</span>
+                  <span>Total <strong style={{ color: 'var(--text-strong)' }}>{totalMinima}</strong></span>
+                </div>
+              </div>
+            )}
             <Button
               variant="secondary"
               size="sm"
@@ -551,6 +691,11 @@ export function SupportPainterPanel({
                 <span className="font-bold">Subtract Mode active:</span>
                 &nbsp;Click a painted triangle to delete its region.
               </div>
+            ) : state.modifierKeys.shift ? (
+              <div className="flex items-center gap-1.5 font-medium" style={{ color: 'var(--accent)' }}>
+                <span className="font-bold">Manual Support Mode active:</span>
+                &nbsp;Click to place supports manually.
+              </div>
             ) : state.directGenEnabled ? (
               <div className="flex flex-col gap-0.5">
                 <span className="font-medium" style={{ color: 'var(--accent)' }}>
@@ -565,6 +710,13 @@ export function SupportPainterPanel({
                 </span>
                 <span>
                   Click to paint. Hold{' '}
+                  <kbd
+                    className="px-1 rounded text-[10px] border"
+                    style={{ background: 'var(--surface-0)', borderColor: 'var(--border-subtle)' }}
+                  >
+                    Shift
+                  </kbd>
+                  {' '}+ click to place supports manually. Hold{' '}
                   <kbd
                     className="px-1 rounded text-[10px] border"
                     style={{ background: 'var(--surface-0)', borderColor: 'var(--border-subtle)' }}

@@ -208,14 +208,15 @@ export function useSupportInteractionManager({ mode, activeModelId = null }: Sup
 
   // Handler for MODEL hover (used for trunk placement preview, or branch tip preview)
   const onModelHover = useCallback((hit: THREE.Intersection | null) => {
-    if (mode === 'supportPainter') {
+    const nativeEvent = getNativeEventSource(hit) as MouseEvent | null;
+    const isShiftPressed = nativeEvent?.shiftKey ?? false;
+
+    if (mode === 'supportPainter' && !isShiftPressed) {
       trunkPlacementV2.onSupportHover(null);
       branchPlacement.onModelHover(null);
       leafPlacement.onModelHover(null);
       return;
     }
-
-    const nativeEvent = getNativeEventSource(hit);
 
     if (isSupportEditInteractionActive()) {
       trunkPlacementV2.onSupportHover(null);
@@ -273,11 +274,12 @@ export function useSupportInteractionManager({ mode, activeModelId = null }: Sup
 
   // Handler for MODEL click (trunk placement, or branch tip placement)
   const onModelClick = useCallback((hit: THREE.Intersection) => {
-    if (mode === 'supportPainter') {
+    const nativeEvent = getNativeEventSource(hit) as MouseEvent | null;
+    const isShiftPressed = nativeEvent?.shiftKey ?? false;
+
+    if (mode === 'supportPainter' && !isShiftPressed) {
       return;
     }
-
-    const nativeEvent = getNativeEventSource(hit);
 
     if (isSupportEditInteractionActive()) {
       return;
@@ -311,7 +313,9 @@ export function useSupportInteractionManager({ mode, activeModelId = null }: Sup
   // REQUIRES hovering over supports. The isPlacementDisabled check would
   // always be true when hovering a support, breaking branch placement.
   const onSupportHover = useCallback((hit: THREE.Intersection | null) => {
-    if (mode !== 'support') return;
+    const nativeEvent = getNativeEventSource(hit) as MouseEvent | null;
+    const isShiftPressed = nativeEvent?.shiftKey ?? false;
+    if (mode !== 'support' && !(mode === 'supportPainter' && isShiftPressed)) return;
 
     if (isSupportEditInteractionActive()) {
       leafPlacement.onSupportHover(null);
@@ -319,7 +323,6 @@ export function useSupportInteractionManager({ mode, activeModelId = null }: Sup
       return;
     }
 
-    const nativeEvent = getNativeEventSource(hit);
     const routing = resolvePlacementRouting(nativeEvent ?? hit);
 
     if (routing.supportHoverOwner === 'leaf') {
@@ -331,13 +334,14 @@ export function useSupportInteractionManager({ mode, activeModelId = null }: Sup
 
   // Handler for SUPPORT click (branch base placement on existing support shaft)
   const onSupportClick = useCallback((hit: THREE.Intersection) => {
-    if (mode !== 'support') return;
+    const nativeEvent = getNativeEventSource(hit) as MouseEvent | null;
+    const isShiftPressed = nativeEvent?.shiftKey ?? false;
+    if (mode !== 'support' && !(mode === 'supportPainter' && isShiftPressed)) return;
 
     if (isSupportEditInteractionActive()) {
       return;
     }
 
-    const nativeEvent = getNativeEventSource(hit);
     const routing = resolvePlacementRouting(nativeEvent ?? hit);
 
     if (routing.supportClickOwner === 'leaf') {
