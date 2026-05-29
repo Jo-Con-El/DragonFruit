@@ -297,54 +297,129 @@ function walkRidge(map: ClientAdjacencyMap, seed: number, localUp: THREE.Vector3
   const seedNormal = map.faceNormals[seed];
   if (seedNormal.dot(localUp) > 0.2) return [];
 
-  // Checks on-the-fly if face sits on a crease fold (angle with any neighbor > 12 deg / 0.21 rad)
-  const isCrease = (f: number): boolean => {
-    const norm = map.faceNormals[f];
-    for (const adj of map.faceToFaces[f]) {
-      if (norm.angleTo(map.faceNormals[adj]) > 0.21) return true;
-    }
-    return false;
-  };
+  const HIGH_THRESHOLD = 8 * (Math.PI / 180);  // 8 degrees
+  const LOW_THRESHOLD = 3 * (Math.PI / 180);   // 3 degrees
 
-  if (!isCrease(seed)) return [];
-  visited.add(seed);
-
-  const getCreaseNeighbors = (f: number): { adj: number; angle: number }[] => {
+  const getPeakCurvature = (f: number): { neighborIdx: number; angle: number } => {
     const norm = map.faceNormals[f];
-    const list: { adj: number; angle: number }[] = [];
+    let maxAngle = 0;
+    let neighborIdx = -1;
     for (const adj of map.faceToFaces[f]) {
-      if (visited.has(adj)) continue;
-      if (map.faceNormals[adj].dot(localUp) > 0.2) continue;
       const angle = norm.angleTo(map.faceNormals[adj]);
-      if (angle > 0.21) {
-        list.push({ adj, angle });
+      if (angle > maxAngle) {
+        maxAngle = angle;
+        neighborIdx = adj;
       }
     }
-    list.sort((a, b) => b.angle - a.angle);
-    return list;
+    return { neighborIdx, angle: maxAngle };
   };
 
-  const candidates = getCreaseNeighbors(seed);
-  
-  if (candidates.length > 0) {
-    let curr = candidates[0].adj;
-    visited.add(curr);
+  const seedPeak = getPeakCurvature(seed);
+  if (seedPeak.angle < HIGH_THRESHOLD) return [];
+  visited.add(seed);
+
+  const propagateChain = (startFace: number) => {
+    let curr = startFace;
     while (true) {
-      const next = getCreaseNeighbors(curr);
-      if (next.length === 0) break;
-      curr = next[0].adj;
+      const { neighborIdx, angle } = getPeakCurvature(curr);
+      if (neighborIdx === -1 || angle < LOW_THRESHOLD) break;
+
+      // Compute local ridge axis vector
+      const normCurr = map.faceNormals[curr];
+      const normCrease = map.faceNormals[neighborIdx];
+      const grad = new THREE.Vector3().subVectors(normCurr, normCrease);
+      const ridgeAxis = new THREE.Vector3().crossVectors(normCurr, grad);
+      if (ridgeAxis.lengthSq() < 1e-6) break;
+      ridgeAxis.normalize();
+
+      // Look at unvisited neighbors and choose the one closest to the ridge axis
+      const adjs = map.faceToFaces[curr];
+      let bestAdj = -1;
+      let bestScore = -1;
+
+      for (const adj of adjs) {
+        if (visited.has(adj)) continue;
+        if (map.faceNormals[adj].dot(localUp) > 0.2) continue; // Overhang constraint
+
+        const adjPeak = getPeakCurvature(adj);
+        if (adjPeak.angle < LOW_THRESHOLD) continue;
+
+        // Compute direction displacement vector
+        const disp = new THREE.Vector3().subVectors(map.faceCentroids[adj], map.faceCentroids[curr]);
+        if (disp.lengthSq() < 1e-6) continue;
+        disp.normalize();
+
+        const score = Math.abs(disp.dot(ridgeAxis));
+        if (score > bestScore) {
+          bestScore = score;
+          bestAdj = adj;
+        }
+      }
+
+      if (bestAdj === -1 || bestScore < 0.3) break;
+      curr = bestAdj;
       visited.add(curr);
     }
-  }
+  };
 
-  if (candidates.length > 1) {
-    let curr = candidates[1].adj;
-    visited.add(curr);
-    while (true) {
-      const next = getCreaseNeighbors(curr);
-      if (next.length === 0) break;
-      curr = next[0].adj;
-      visited.add(curr);
+  const normSeed = map.faceNormals[seed];
+  const normCreaseSeed = map.faceNormals[seedPeak.neighborIdx];
+  const gradSeed = new THREE.Vector3().subVectors(normSeed, normCreaseSeed);
+  const ridgeAxisSeed = new THREE.Vector3().crossVectors(normSeed, gradSeed);
+
+  if (ridgeAxisSeed.lengthSq() < 1e-6) {
+    // Fallback if cross product is degenerate
+    const fallbacks = map.faceToFaces[seed].filter(
+      (adj) => getPeakCurvature(adj).angle >= LOW_THRESHOLD && map.faceNormals[adj].dot(localUp) <= 0.2
+    );
+    if (fallbacks.length > 0) {
+      visited.add(fallbacks[0]);
+      propagateChain(fallbacks[0]);
+    }
+    if (fallbacks.length > 1) {
+      visited.add(fallbacks[1]);
+      propagateChain(fallbacks[1]);
+    }
+  } else {
+    ridgeAxisSeed.normalize();
+
+    const adjsSeed = map.faceToFaces[seed];
+    let bestForwardAdj = -1;
+    let bestForwardScore = -1;
+    let bestBackwardAdj = -1;
+    let bestBackwardScore = -1;
+
+    for (const adj of adjsSeed) {
+      if (map.faceNormals[adj].dot(localUp) > 0.2) continue;
+      const adjPeak = getPeakCurvature(adj);
+      if (adjPeak.angle < LOW_THRESHOLD) continue;
+
+      const disp = new THREE.Vector3().subVectors(map.faceCentroids[adj], map.faceCentroids[seed]);
+      if (disp.lengthSq() < 1e-6) continue;
+      disp.normalize();
+
+      const dotVal = disp.dot(ridgeAxisSeed);
+      const score = Math.abs(dotVal);
+      if (dotVal > 0) {
+        if (score > bestForwardScore) {
+          bestForwardScore = score;
+          bestForwardAdj = adj;
+        }
+      } else {
+        if (score > bestBackwardScore) {
+          bestBackwardScore = score;
+          bestBackwardAdj = adj;
+        }
+      }
+    }
+
+    if (bestForwardAdj !== -1 && bestForwardScore >= 0.3) {
+      visited.add(bestForwardAdj);
+      propagateChain(bestForwardAdj);
+    }
+    if (bestBackwardAdj !== -1 && bestBackwardScore >= 0.3) {
+      visited.add(bestBackwardAdj);
+      propagateChain(bestBackwardAdj);
     }
   }
 

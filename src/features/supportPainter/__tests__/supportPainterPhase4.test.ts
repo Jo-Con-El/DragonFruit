@@ -280,4 +280,46 @@ describe('Support Painter Phase 4 - Manual Geodesic Brushes & Boolean Operations
       assert.ok(interRA.triangleIds.has(2), 'Only the intersection face 2 should remain');
     });
   });
+
+  describe('Ridge Crease Walk & Hysteresis', () => {
+    it('should traverse along a soft-creased / faceted ridge using hysteresis thresholds and directional alignment', () => {
+      // 3 faces representing a soft/faceted crease line
+      // Face 0: flat horizontal base normal pointing down
+      // Face 1: tilted slightly by 10 degrees (dihedral = 10° > HIGH_THRESHOLD 8°)
+      // Face 2: tilted further by 5 degrees (dihedral = 5° > LOW_THRESHOLD 3°)
+      const creaseAdjacencyMap: ClientAdjacencyMap = {
+        faceCount: 3,
+        faceNormals: [
+          new THREE.Vector3(0, 0, -1),
+          new THREE.Vector3(0, Math.sin(10 * Math.PI / 180), -Math.cos(10 * Math.PI / 180)),
+          new THREE.Vector3(0, Math.sin(15 * Math.PI / 180), -Math.cos(15 * Math.PI / 180)),
+        ],
+        faceCentroids: [
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(1, 0, 0),
+          new THREE.Vector3(2, 0, 0),
+        ],
+        faceZBounds: Array.from({ length: 3 }, () => ({ min: -0.1, max: 0.1 })),
+        faceToFaces: [
+          [1],    // 0
+          [0, 2], // 1
+          [1],    // 2
+        ],
+      };
+
+      const result = proposeRegionOnClient(
+        creaseAdjacencyMap,
+        0, // Seed face 0
+        'Ridge',
+        identityMatrix
+      );
+
+      // The walk should accept seed 0 (peak curvature 10° >= 8° HIGH)
+      // and successfully propagate through 1 (dihedral 10° >= 3°) and 2 (dihedral 5° >= 3°)
+      assert.strictEqual(result.length, 3);
+      assert.ok(result.includes(0), 'Should contain seed 0');
+      assert.ok(result.includes(1), 'Should traverse to face 1');
+      assert.ok(result.includes(2), 'Should traverse to soft face 2');
+    });
+  });
 });
