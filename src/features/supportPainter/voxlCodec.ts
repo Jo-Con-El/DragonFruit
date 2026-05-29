@@ -73,6 +73,8 @@ export function serializeROIsForVoxl(
         brush: r.brush,
         support: r.support,
         modelId, // Save the model ID per region
+        placedCount: r.placedCount,
+        attemptedCount: r.attemptedCount,
       });
     }
   }
@@ -121,6 +123,8 @@ export function deserializeROIsFromVoxl(
       support: r.support,
       modelId: targetModelId,
       loadedFromVoxl: true,
+      placedCount: r.placedCount,
+      attemptedCount: r.attemptedCount,
     });
   }
   return result;

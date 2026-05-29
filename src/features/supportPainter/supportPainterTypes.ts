@@ -46,6 +46,8 @@ export interface ROIRegion {
   support?:        SupportGenerationMetadata;
   modelId?:        string;          // Optional model reference for multi-model sheets
   loadedFromVoxl?: boolean;         // True if imported from a VOXL file
+  placedCount?:    number;
+  attemptedCount?: number;
 }
 
 // ─── Stage-Based Suppression Configurations [STAGE_SUPPRESSION] ───────────────
@@ -112,6 +114,7 @@ export interface SupportPainterState {
   // ─── Granular Storage / Tracking Mode ───
   // [AGENT_NOTE] Governs persistence of ROIs: 'none' (transient), 'session' (in-memory only), 'voxl' (serialized to file).
   roiTrackingMode:          'none' | 'session' | 'voxl';
+  selectedRegionId:         string | null;
 }
 
 // ─── Store Action Payloads ───────────────────────────────────────────────────
@@ -184,6 +187,8 @@ export interface VoxlROIRegion {
   brush?:          BrushMetadata;
   support?:        SupportGenerationMetadata;
   modelId?:        string;          // Optional model reference for multi-model sheets
+  placedCount?:    number;
+  attemptedCount?: number;
 }
 
 export interface VoxlROIExtension {

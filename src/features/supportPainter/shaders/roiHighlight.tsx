@@ -170,6 +170,10 @@ export function useRoiHighlightMaterial(
             float pulse = 0.35 + 0.45 * sin(uTime * 8.0);
             finalColor = mix(uBaseColor, roi.rgb, pulse);
             emissiveBoost = pulse * 0.5;
+          } else if (roi.a < 0.85) {
+            // Selected/Focused region: strong pulsing glow for rapid identification
+            float pulse = 0.5 + 0.5 * sin(uTime * 12.0);
+            emissiveBoost = 0.8 + pulse * 1.0;
           } else {
             // Committed ROI color
             emissiveBoost = 0.65;

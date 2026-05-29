@@ -181,6 +181,47 @@ function samplePolylineWithNormals(
   return samples;
 }
 
+function sampleSpineWithNormals(
+  points: THREE.Vector3[],
+  normals: THREE.Vector3[],
+  spacing: number
+): BasicSampledPoint[] {
+  if (points.length === 0) return [];
+  if (points.length === 1) {
+    return [{ pos: points[0].clone(), normal: normals[0].clone() }];
+  }
+
+  const samples: BasicSampledPoint[] = [];
+  // Always add first point
+  samples.push({ pos: points[0].clone(), normal: normals[0].clone() });
+
+  let accumulatedDist = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
+    const n0 = normals[i];
+    const n1 = normals[i + 1];
+
+    const segDir = new THREE.Vector3().subVectors(p1, p0);
+    const segLen = segDir.length();
+    if (segLen === 0) continue;
+    segDir.normalize();
+
+    let tSeg = 0;
+    while (accumulatedDist + (segLen - tSeg * segLen) >= spacing) {
+      const needed = spacing - accumulatedDist;
+      tSeg += needed / segLen;
+      const pos = new THREE.Vector3().lerpVectors(p0, p1, tSeg);
+      const normal = new THREE.Vector3().lerpVectors(n0, n1, tSeg).normalize();
+      samples.push({ pos, normal });
+      accumulatedDist = 0;
+    }
+    accumulatedDist += segLen * (1 - tSeg);
+  }
+
+  return samples;
+}
+
 /**
  * High-performance support generator that parses painted regions and outputs physical columns.
  */
@@ -305,127 +346,82 @@ export async function generateSupportsFromPainter(
       vertexNormals.get(idx)!.normalize();
     }
 
-    // 3b. Identify boundary edges
-    const edgeCount = new Map<string, number>();
-    const edgeToVertices = new Map<string, [number, number]>();
+    if (region.brushType === 'CylinderMinima' || region.brushType === 'Ridge') {
+      // ─── 1D Centroid Chain Walk crease spine sampling ───
+      const regionAdj = new Map<number, number[]>();
+      const addRegionAdj = (ta: number, tb: number) => {
+        let list = regionAdj.get(ta);
+        if (!list) { regionAdj.set(ta, list = []); }
+        list.push(tb);
+      };
 
-    for (const triId of triangleIds) {
-      const tri = triangles[triId];
-      if (!tri) continue;
-
-      const edges = [
-        [tri.idx0, tri.idx1],
-        [tri.idx1, tri.idx2],
-        [tri.idx2, tri.idx0],
-      ] as const;
-
-      for (const [idxA, idxB] of edges) {
-        const key = idxA < idxB ? `${idxA}|${idxB}` : `${idxB}|${idxA}`;
-        edgeCount.set(key, (edgeCount.get(key) || 0) + 1);
-        if (!edgeToVertices.has(key)) {
-          edgeToVertices.set(key, [idxA, idxB]);
+      const edgeMap = new Map<string, number[]>();
+      for (const triId of triangleIds) {
+        const tri = triangles[triId];
+        if (!tri) continue;
+        const edges = [
+          tri.idx0 < tri.idx1 ? `${tri.idx0}|${tri.idx1}` : `${tri.idx1}|${tri.idx0}`,
+          tri.idx1 < tri.idx2 ? `${tri.idx1}|${tri.idx2}` : `${tri.idx2}|${tri.idx1}`,
+          tri.idx2 < tri.idx0 ? `${tri.idx2}|${tri.idx0}` : `${tri.idx0}|${tri.idx2}`
+        ];
+        for (const ek of edges) {
+          let list = edgeMap.get(ek);
+          if (!list) { edgeMap.set(ek, list = []); }
+          list.push(triId);
         }
       }
-    }
 
-    const boundaryEdges = new Set<string>();
-    for (const [key, count] of edgeCount.entries()) {
-      if (count === 1) {
-        boundaryEdges.add(key);
-      }
-    }
-
-    // Assemble boundary loops
-    const adj = new Map<number, number[]>();
-    const addAdj = (a: number, b: number) => {
-      let list = adj.get(a);
-      if (!list) {
-        list = [];
-        adj.set(a, list);
-      }
-      list.push(b);
-    };
-
-    for (const key of boundaryEdges) {
-      const [a, b] = edgeToVertices.get(key)!;
-      addAdj(a, b);
-      addAdj(b, a);
-    }
-
-    const visitedEdges = new Set<string>();
-
-    for (const key of boundaryEdges) {
-      if (visitedEdges.has(key)) continue;
-
-      const [start, next] = edgeToVertices.get(key)!;
-      const path: number[] = [start, next];
-      visitedEdges.add(key);
-
-      let current = next;
-      let prev = start;
-
-      while (true) {
-        const neighbors = adj.get(current) || [];
-        let nextVertex: number | null = null;
-        let nextEdgeKey = '';
-
-        for (const n of neighbors) {
-          if (n === prev) continue;
-          const ek = current < n ? `${current}|${n}` : `${n}|${current}`;
-          if (boundaryEdges.has(ek) && !visitedEdges.has(ek)) {
-            nextVertex = n;
-            nextEdgeKey = ek;
-            break;
-          }
+      for (const list of edgeMap.values()) {
+        if (list.length === 2) {
+          addRegionAdj(list[0], list[1]);
+          addRegionAdj(list[1], list[0]);
         }
+      }
 
-        if (nextVertex !== null) {
-          visitedEdges.add(nextEdgeKey);
-          if (nextVertex === start) {
-            path.push(nextVertex);
-            break;
-          }
-          path.push(nextVertex);
-          prev = current;
-          current = nextVertex;
-        } else {
+      let startTri = Array.from(triangleIds)[0];
+      for (const triId of triangleIds) {
+        const degree = regionAdj.get(triId)?.length ?? 0;
+        if (degree === 1) {
+          startTri = triId;
           break;
         }
       }
 
-      // ─── Perimeter Minima Alignment [PERIMETER_MINIMA] ───
-      // [AGENT_NOTE] Shift/rotate the boundary path so the vertex with the lowest Z coordinate is first.
-      const isClosed = path.length > 1 && path[0] === path[path.length - 1];
-      let finalPath = path;
+      const orderedFaces: number[] = [];
+      const visitedFaces = new Set<number>();
+      let currentTri = startTri;
 
-      if (isClosed && path.length > 2) {
-        const loopVertices = path.slice(0, -1);
-        let minZIndex = 0;
-        let minZ = Infinity;
-        for (let j = 0; j < loopVertices.length; j++) {
-          const z = uniqueVertices[loopVertices[j]].z;
-          if (z < minZ) {
-            minZ = z;
-            minZIndex = j;
+      while (currentTri !== undefined && !visitedFaces.has(currentTri)) {
+        orderedFaces.push(currentTri);
+        visitedFaces.add(currentTri);
+
+        const neighbors = regionAdj.get(currentTri) || [];
+        let nextTri: number | undefined = undefined;
+        for (const n of neighbors) {
+          if (!visitedFaces.has(n)) {
+            nextTri = n;
+            break;
           }
         }
-        // Rotate loopVertices so that minZIndex is at 0
-        const rotated = [
-          ...loopVertices.slice(minZIndex),
-          ...loopVertices.slice(0, minZIndex)
-        ];
-        rotated.push(rotated[0]); // Maintain closed loop
-        finalPath = rotated;
+        currentTri = nextTri!;
       }
 
-      // Assemble persistent boundary loop info
+      const spinePoints: THREE.Vector3[] = [];
+      const spineNormals: THREE.Vector3[] = [];
+      for (const f of orderedFaces) {
+        const tri = triangles[f];
+        if (tri) {
+          spinePoints.push(tri.centroid);
+          spineNormals.push(tri.normal);
+        }
+      }
+
       regionLoops.push({
         type: 'outer',
-        vertexIds: [...finalPath],
+        vertexIds: orderedFaces.map(f => triangles[f].idx0),
       });
 
-      // Sample along this aligned polyline
-      const samples = samplePolylineWithNormals(finalPath, perimeterSpacing, uniqueVertices, vertexNormals);
+      const samples = sampleSpineWithNormals(spinePoints, spineNormals, perimeterSpacing);
       for (const sample of samples) {
         rawPerimeter.push({
           pos: sample.pos,
@@ -435,6 +431,139 @@ export async function generateSupportsFromPainter(
           regionTriCount: region.triangleIds.size,
           stage: 'perimeter',
         });
+      }
+    } else {
+      // 3b. Identify boundary edges (Standard 2D Loop sampling)
+      const edgeCount = new Map<string, number>();
+      const edgeToVertices = new Map<string, [number, number]>();
+
+      for (const triId of triangleIds) {
+        const tri = triangles[triId];
+        if (!tri) continue;
+
+        const edges = [
+          [tri.idx0, tri.idx1],
+          [tri.idx1, tri.idx2],
+          [tri.idx2, tri.idx0],
+        ] as const;
+
+        for (const [idxA, idxB] of edges) {
+          const key = idxA < idxB ? `${idxA}|${idxB}` : `${idxB}|${idxA}`;
+          edgeCount.set(key, (edgeCount.get(key) || 0) + 1);
+          if (!edgeToVertices.has(key)) {
+            edgeToVertices.set(key, [idxA, idxB]);
+          }
+        }
+      }
+
+      const boundaryEdges = new Set<string>();
+      for (const [key, count] of edgeCount.entries()) {
+        if (count === 1) {
+          boundaryEdges.add(key);
+        }
+      }
+
+      // Assemble boundary loops
+      const adj = new Map<number, number[]>();
+      const addAdj = (a: number, b: number) => {
+        let list = adj.get(a);
+        if (!list) {
+          list = [];
+          adj.set(a, list);
+        }
+        list.push(b);
+      };
+
+      for (const key of boundaryEdges) {
+        const [a, b] = edgeToVertices.get(key)!;
+        addAdj(a, b);
+        addAdj(b, a);
+      }
+
+      const visitedEdges = new Set<string>();
+
+      for (const key of boundaryEdges) {
+        if (visitedEdges.has(key)) continue;
+
+        const [start, next] = edgeToVertices.get(key)!;
+        const path: number[] = [start, next];
+        visitedEdges.add(key);
+
+        let current = next;
+        let prev = start;
+
+        while (true) {
+          const neighbors = adj.get(current) || [];
+          let nextVertex: number | null = null;
+          let nextEdgeKey = '';
+
+          for (const n of neighbors) {
+            if (n === prev) continue;
+            const ek = current < n ? `${current}|${n}` : `${n}|${current}`;
+            if (boundaryEdges.has(ek) && !visitedEdges.has(ek)) {
+              nextVertex = n;
+              nextEdgeKey = ek;
+              break;
+            }
+          }
+
+          if (nextVertex !== null) {
+            visitedEdges.add(nextEdgeKey);
+            if (nextVertex === start) {
+              path.push(nextVertex);
+              break;
+            }
+            path.push(nextVertex);
+            prev = current;
+            current = nextVertex;
+          } else {
+            break;
+          }
+        }
+
+        // ─── Perimeter Minima Alignment [PERIMETER_MINIMA] ───
+        // [AGENT_NOTE] Shift/rotate the boundary path so the vertex with the lowest Z coordinate is first.
+        const isClosed = path.length > 1 && path[0] === path[path.length - 1];
+        let finalPath = path;
+
+        if (isClosed && path.length > 2) {
+          const loopVertices = path.slice(0, -1);
+          let minZIndex = 0;
+          let minZ = Infinity;
+          for (let j = 0; j < loopVertices.length; j++) {
+            const z = uniqueVertices[loopVertices[j]].z;
+            if (z < minZ) {
+              minZ = z;
+              minZIndex = j;
+            }
+          }
+          // Rotate loopVertices so that minZIndex is at 0
+          const rotated = [
+            ...loopVertices.slice(minZIndex),
+            ...loopVertices.slice(0, minZIndex)
+          ];
+          rotated.push(rotated[0]); // Maintain closed loop
+          finalPath = rotated;
+        }
+
+        // Assemble persistent boundary loop info
+        regionLoops.push({
+          type: 'outer',
+          vertexIds: [...finalPath],
+        });
+
+        // Sample along this aligned polyline
+        const samples = samplePolylineWithNormals(finalPath, perimeterSpacing, uniqueVertices, vertexNormals);
+        for (const sample of samples) {
+          rawPerimeter.push({
+            pos: sample.pos,
+            normal: sample.normal,
+            regionId: region.id,
+            regionType: region.brushType,
+            regionTriCount: region.triangleIds.size,
+            stage: 'perimeter',
+          });
+        }
       }
     }
 
@@ -606,13 +735,21 @@ export async function generateSupportsFromPainter(
 
   // helper evaluator
   const evaluateSuppression = (cand: SampledPoint, config: typeof suppressionSettings.minima): boolean => {
-    if (config.mode === 'none') return false;
+    // Override candidate check: CylinderSides and CylinderMinima always enforce suppression
+    const isOverrideCandidate =
+      cand.regionType === 'CylinderSides' ||
+      cand.regionType === 'CylinderMinima';
+
+    const effectiveMode = isOverrideCandidate ? 'all' : config.mode;
+    if (effectiveMode === 'none') return false;
 
     const allAccepted = [...acceptedMinima, ...acceptedPerimeter, ...acceptedInfill];
     for (const accepted of allAccepted) {
-      if (config.types.includes(accepted.stage)) {
+      const checkStageTypes = isOverrideCandidate ? ['minima', 'perimeter', 'infill'] : config.types;
+
+      if (checkStageTypes.includes(accepted.stage)) {
         // ROI scope check
-        if (config.mode === 'current' && accepted.regionId !== cand.regionId) {
+        if (effectiveMode === 'current' && accepted.regionId !== cand.regionId) {
           continue;
         }
         // Match suppression radius to the compared target point
@@ -622,11 +759,10 @@ export async function generateSupportsFromPainter(
             ? infillSpacing
             : minimaSuppressionRadius;
 
-        // Custom Overrides for MacroFace and CylinderSides regions
-        if (cand.regionType === 'CylinderSides' || accepted.regionType === 'CylinderSides') {
+        // Custom Overrides for CylinderSides and CylinderMinima (3.0x trunk width spacing)
+        if (cand.regionType === 'CylinderSides' || accepted.regionType === 'CylinderSides' ||
+            cand.regionType === 'CylinderMinima' || accepted.regionType === 'CylinderMinima') {
           radius = trunkWidth * 3.0;
-        } else if (cand.regionType === 'MacroFace' || accepted.regionType === 'MacroFace') {
-          radius = trunkWidth;
         }
 
         if (distance2D(cand.pos, accepted.pos) < radius) {
@@ -876,7 +1012,17 @@ export async function generateSupportsFromPainter(
     endSupportStateBatch();
   }
 
-  // 5. Capture snapshot after execution and push a unified history step
+  // 5. Save stats inside the actual region objects in the store map
+  const finalRegions = new Map(supportPainterStore.getSnapshot().regions);
+  for (const r of regions) {
+    const stats = statsMap.get(r.id);
+    r.placedCount = stats ? stats.placed : 0;
+    r.attemptedCount = stats ? stats.attempted : 0;
+    finalRegions.set(r.id, r);
+  }
+  supportPainterStore.restoreRegions(finalRegions);
+
+  // Capture snapshot after execution and push a unified history step
   const afterState = getSupportSnapshot();
   const afterRegions = new Map(supportPainterStore.getSnapshot().regions);
 

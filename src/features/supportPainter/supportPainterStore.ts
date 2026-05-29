@@ -27,6 +27,7 @@ let triangleColorMap: TriangleColorMap = new Map();
 let hoveredTriangleId: number | null = null;
 let proposedTriangleIds = new Set<number>();
 let directGenEnabled = false;
+let selectedRegionId: string | null = null;
 let clientAdjacencyMap: ClientAdjacencyMap | null = null;
 
 // ─── Extended Spacing & Suppression Parameters [STORE_STATE] ───
@@ -40,8 +41,8 @@ const DEFAULT_SUPPRESSION_SETTINGS: SuppressionSettings = {
     types: ['minima'],
   },
   perimeter: {
-    mode: 'none',
-    types: [],
+    mode: 'all',
+    types: ['minima', 'perimeter'],
   },
   infill: {
     mode: 'all',
@@ -71,6 +72,7 @@ let storeSnapshot: SupportPainterState = {
   suppressionSettings: { ...suppressionSettings },
   toast: null,
   roiTrackingMode,
+  selectedRegionId,
 };
 
 function notify() {
@@ -99,6 +101,7 @@ function updateSnapshot() {
     suppressionSettings: { ...suppressionSettings },
     toast: toast ? { ...toast } : null,
     roiTrackingMode,
+    selectedRegionId,
   };
 }
 
@@ -115,8 +118,9 @@ function _recomputeTriangleColorMap(): TriangleColorMap {
   // 1. Committed regions
   for (const region of regions.values()) {
     const rgb = hexToRgb(region.color);
+    const alpha = region.id === selectedRegionId ? 200 : 255;
     for (const triId of region.triangleIds) {
-      map.set(triId, [rgb[0], rgb[1], rgb[2], 255]);
+      map.set(triId, [rgb[0], rgb[1], rgb[2], alpha]);
     }
   }
   // 2. Proposed/hover preview
@@ -415,6 +419,14 @@ export const supportPainterStore = {
     }
     proposedTriangleIds.clear();
     hoveredTriangleId = null;
+    triangleColorMap = _recomputeTriangleColorMap();
+    updateSnapshot();
+    notify();
+  },
+
+  setSelectedRegionId(id: string | null) {
+    if (selectedRegionId === id) return;
+    selectedRegionId = id;
     triangleColorMap = _recomputeTriangleColorMap();
     updateSnapshot();
     notify();

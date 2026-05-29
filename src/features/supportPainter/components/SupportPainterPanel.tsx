@@ -185,6 +185,28 @@ export function SupportPainterPanel({
     });
   };
 
+  const handleDeleteRegion = (regionId: string) => {
+    const beforeState = getSupportsSnapshot();
+    const nextState = deleteSupportsForRoi(beforeState, regionId);
+    const beforeRegions = new Map(supportPainterStore.getSnapshot().regions);
+    const nextRegions = new Map(beforeRegions);
+    nextRegions.delete(regionId);
+
+    setSupportSnapshot(nextState);
+    supportPainterStore.restoreRegions(nextRegions);
+
+    pushHistory({
+      type: SUPPORT_EDIT_REPLACE,
+      description: 'Delete ROI region and supports',
+      payload: {
+        before: beforeState,
+        after: nextState,
+        painterRegionsBefore: beforeRegions,
+        painterRegionsAfter: nextRegions,
+      },
+    });
+  };
+
   const activeDetails = BRUSH_DETAILS[state.activeBrush] || BRUSH_DETAILS.MacroFace;
 
   return (
@@ -499,20 +521,26 @@ export function SupportPainterPanel({
                         const regionAnchors = Object.values(supportState.anchors).filter(a => a.roiId === region.id);
                         const totalChildSupports = regionTrunks.length + regionBranches.length + regionLeaves.length + regionTwigs.length + regionSticks.length + regionAnchors.length;
 
+                        const isSelected = state.selectedRegionId === region.id;
+
                         return (
                           <div
                             key={region.id}
-                            className="flex flex-col p-2 rounded-lg border text-xs gap-1"
+                            className="flex flex-col p-2 rounded-lg border text-xs gap-1 transition-all duration-150"
+                            onClick={() => supportPainterStore.setSelectedRegionId(isSelected ? null : region.id)}
                             style={{
                               background: 'var(--surface-2)',
-                              borderColor: 'var(--border-subtle)',
+                              borderColor: isSelected ? 'var(--success, #10b981)' : 'var(--border-subtle)',
+                              boxShadow: isSelected ? '0 0 10px rgba(16, 185, 129, 0.45)' : 'none',
+                              cursor: 'pointer',
                             }}
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-1.5 min-w-0">
                                 {/* Chevron Toggle button */}
                                 <IconButton
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setExpandedRegions(prev => ({
                                       ...prev,
                                       [region.id]: !prev[region.id],
@@ -539,25 +567,28 @@ export function SupportPainterPanel({
                                   <div className="flex items-center gap-1 min-w-0">
                                     <span
                                       className="font-semibold truncate"
-                                      style={{ color: totalChildSupports === 0 ? 'var(--warning, #f59e0b)' : 'var(--text-strong)' }}
+                                      style={{ color: totalChildSupports === 0 ? 'var(--warning, #eab308)' : 'var(--text-strong)' }}
                                     >
                                       {details?.label || region.brushType}
                                     </span>
-                                    {totalChildSupports === 0 && (
-                                      <span
-                                        className="text-[9px] font-bold px-1 py-0.5 rounded border border-amber-500/20 bg-amber-500/10 text-amber-500 flex-shrink-0"
-                                        style={{ color: 'var(--warning, #f59e0b)' }}
-                                      >
-                                        No supports placed
-                                      </span>
-                                    )}
                                   </div>
-                                  <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
+                                  <span
+                                    className="text-[9px]"
+                                    style={{ color: totalChildSupports === 0 ? 'var(--warning, #eab308)' : 'var(--text-muted)' }}
+                                  >
                                     Seed #{region.seedTriangleId}
                                   </span>
                                 </div>
                               </div>
                               <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <span
+                                  className="text-[10px] font-bold mr-1"
+                                  style={{
+                                    color: totalChildSupports === 0 ? 'var(--danger, #ef4444)' : 'var(--text-muted)',
+                                  }}
+                                >
+                                  {totalChildSupports}/{region.attemptedCount ?? totalChildSupports}
+                                </span>
                                 <span
                                   className="text-[10px] px-1.5 py-0.5 rounded border font-semibold"
                                   style={{
@@ -569,7 +600,8 @@ export function SupportPainterPanel({
                                   {region.triangleIds.size} tri
                                 </span>
                                 <IconButton
-                                  onClick={async () => {
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
                                     const activeMesh = getActiveMesh?.();
                                     if (activeModelId && activeMesh) {
                                       await regenerateSupportsForRoi(activeModelId, activeMesh, region.id);
@@ -581,15 +613,25 @@ export function SupportPainterPanel({
                                   <RefreshCw className="w-3.5 h-3.5" />
                                 </IconButton>
                                 <IconButton
-                                  onClick={() => handleRemoveSupportsForRoi(region.id)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveSupportsForRoi(region.id);
+                                  }}
                                   className="!p-1"
                                   disabled={totalChildSupports === 0}
                                   title="Remove supports for this region only"
+                                  style={{
+                                    opacity: totalChildSupports === 0 ? 0.4 : 1,
+                                    cursor: totalChildSupports === 0 ? 'not-allowed' : 'pointer',
+                                  }}
                                 >
                                   <Eraser className="w-3.5 h-3.5" style={{ color: totalChildSupports === 0 ? 'var(--text-muted)' : 'var(--warning, #f59e0b)' }} />
                                 </IconButton>
                                 <IconButton
-                                  onClick={() => supportPainterStore.removeRegion(region.id)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteRegion(region.id);
+                                  }}
                                   className="!p-1"
                                   title="Delete region"
                                 >

@@ -13,6 +13,12 @@ import { useRoiHighlightMaterial } from '@/features/supportPainter/shaders/roiHi
 import { generateSupportsFromPainter } from '@/features/supportPainter/supportScriptingEngine';
 import { type ROIRegion, BRUSH_COLORS } from '@/features/supportPainter/supportPainterTypes';
 import {
+  getSnapshot as getSupportsSnapshot,
+  setSnapshot as setSupportSnapshot,
+} from '@/supports/state';
+import { deleteSupportsForRoi } from '@/supports/PlacementLogic/SupportModelLinker';
+import { SUPPORT_EDIT_REPLACE } from '@/supports/history/actionTypes';
+import {
   beginMeshSmoothingStroke,
   updateMeshSmoothingStroke,
   setMeshSmoothingHover,
@@ -1104,10 +1110,24 @@ if (uDitherAmount > 0.0) {
                 if (deletedId) {
                   const deletedRegion = snap.regions.get(deletedId);
                   if (deletedRegion) {
+                    const beforeState = getSupportsSnapshot();
+                    const nextState = deleteSupportsForRoi(beforeState, deletedId);
+                    const beforeRegions = new Map(snap.regions);
+                    const nextRegions = new Map(beforeRegions);
+                    nextRegions.delete(deletedId);
+
+                    setSupportSnapshot(nextState);
+                    supportPainterStore.restoreRegions(nextRegions);
+
                     pushHistory({
-                      type: PAINT_ROI_REMOVE,
-                      description: 'Subtract painted region',
-                      payload: { region: deletedRegion },
+                      type: SUPPORT_EDIT_REPLACE,
+                      description: 'Subtract painted region and supports',
+                      payload: {
+                        before: beforeState,
+                        after: nextState,
+                        painterRegionsBefore: beforeRegions,
+                        painterRegionsAfter: nextRegions,
+                      },
                     });
                   }
                 }
