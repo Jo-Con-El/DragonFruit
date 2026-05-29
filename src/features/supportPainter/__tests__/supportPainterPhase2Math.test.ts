@@ -5,7 +5,7 @@ import assert from 'node:assert';
 
 // Coordinate translation logic for Clock widget
 function getClockCoords(deg: number, radius: number, cx = 50, cy = 50) {
-  const rad = (deg - 90) * (Math.PI / 180);
+  const rad = (deg + 180 - 90) * (Math.PI / 180);
   return {
     x: cx + radius * Math.cos(rad),
     y: cy + radius * Math.sin(rad),
@@ -23,8 +23,8 @@ function computeClockAngleFromPointer(
   const angleRad = Math.atan2(clientY - rectCenterY, clientX - rectCenterX);
   let angleDeg = angleRad * (180 / Math.PI); // -180 to 180
 
-  // Top vertical (12 o'clock) is 0°
-  let relativeAngle = angleDeg + 90;
+  // Bottom vertical (6 o'clock) is 0°
+  let relativeAngle = angleDeg - 90;
   if (relativeAngle < -180) relativeAngle += 360;
   if (relativeAngle > 180) relativeAngle -= 360;
 
@@ -63,40 +63,40 @@ describe('Support Painter Phase 2 - SVG Dial & Gauge Mathematical Verification',
   
   describe('Symmetrical Clock Polar Math & Snapping', () => {
     it('should translate degree steps to standard SVG viewport coordinates correctly', () => {
-      // 0° vertical top (12 o'clock) -> x should be 50, y should be center - radius
-      const topCoords = getClockCoords(0, 35);
-      assert.ok(Math.abs(topCoords.x - 50) < 1e-5);
-      assert.ok(Math.abs(topCoords.y - 15) < 1e-5);
+      // 0° vertical bottom (6 o'clock) -> x should be 50, y should be center + radius
+      const bottomCoords = getClockCoords(0, 35);
+      assert.ok(Math.abs(bottomCoords.x - 50) < 1e-5);
+      assert.ok(Math.abs(bottomCoords.y - 85) < 1e-5);
 
-      // 90° horizontal right (3 o'clock) -> x should be center + radius, y should be 50
-      const rightCoords = getClockCoords(90, 35);
-      assert.ok(Math.abs(rightCoords.x - 85) < 1e-5);
-      assert.ok(Math.abs(rightCoords.y - 50) < 1e-5);
-
-      // -90° horizontal left (9 o'clock) -> x should be center - radius, y should be 50
-      const leftCoords = getClockCoords(-90, 35);
+      // 90° horizontal left (9 o'clock) -> x should be center - radius, y should be 50
+      const leftCoords = getClockCoords(90, 35);
       assert.ok(Math.abs(leftCoords.x - 15) < 1e-5);
       assert.ok(Math.abs(leftCoords.y - 50) < 1e-5);
+
+      // -90° horizontal right (3 o'clock) -> x should be center + radius, y should be 50
+      const rightCoords = getClockCoords(-90, 35);
+      assert.ok(Math.abs(rightCoords.x - 85) < 1e-5);
+      assert.ok(Math.abs(rightCoords.y - 50) < 1e-5);
     });
 
     it('should map pointer drag coordinates to snapped half-angle values correctly', () => {
-      // 1. Symmetrical snap test at relative angle ~45° (clockwise from top: 1:30 position)
-      // At 1:30, SVG angle is -45°. x = 50 + R * cos(-45°) = 74.7, y = 50 + R * sin(-45°) = 25.3
-      const angle1 = computeClockAngleFromPointer(74.7, 25.3, 50, 50, 15);
+      // 1. Symmetrical snap test at relative angle ~45° (clockwise from bottom: 4:30 position)
+      // At 4:30, SVG angle is 45°. x = 50 + R * cos(45°) = 74.7, y = 50 + R * sin(45°) = 74.7
+      const angle1 = computeClockAngleFromPointer(74.7, 74.7, 50, 50, 15);
       assert.strictEqual(angle1, 45);
 
       // 2. Snap test at relative angle ~36°: should snap down to 30°
-      // At relative angle 36°, x = 50 + R * sin(36°) = 70.5, y = 50 - R * cos(36°) = 21.7
-      const angle2 = computeClockAngleFromPointer(70.5, 21.7, 50, 50, 15);
+      // At relative angle 36° from bottom: x = 50 + R * sin(36°) = 70.5, y = 50 + R * cos(36°) = 78.3
+      const angle2 = computeClockAngleFromPointer(70.5, 78.3, 50, 50, 15);
       assert.strictEqual(angle2, 30);
 
       // 3. Snap test at relative angle ~53°: should snap up to 60°
-      // At relative angle 53°, x = 50 + R * sin(53°) = 77.9, y = 50 - R * cos(53°) = 28.9
-      const angle3 = computeClockAngleFromPointer(77.9, 28.9, 50, 50, 15);
+      // At relative angle 53° from bottom: x = 50 + R * sin(53°) = 77.9, y = 50 + R * cos(53°) = 71.1
+      const angle3 = computeClockAngleFromPointer(77.9, 71.1, 50, 50, 15);
       assert.strictEqual(angle3, 60);
 
       // 4. Out of bounds (e.g. 195° absolute): should clamp to 180°
-      const angle4 = computeClockAngleFromPointer(50, 200, 50, 50, 15);
+      const angle4 = computeClockAngleFromPointer(50, -100, 50, 50, 15);
       assert.strictEqual(angle4, 180);
     });
   });

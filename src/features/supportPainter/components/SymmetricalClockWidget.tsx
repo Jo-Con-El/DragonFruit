@@ -22,9 +22,11 @@ export function SymmetricalClockWidget({
   const R = 35; // sector radius
   const handleR = 38; // drag handle radius
 
-  // Convert angle (degrees from vertical top) to SVG coordinates (centered at 50,50)
+  // Convert angle (degrees from vertical bottom) to SVG coordinates (centered at 50,50)
   const getCoords = (deg: number, radius: number) => {
-    const rad = (deg - 90) * (Math.PI / 180);
+    // 6 o'clock is 180 degrees from vertical top, which is +90 degrees in SVG space.
+    // So we add 180 to flip it to be centered at vertical bottom.
+    const rad = (deg + 180 - 90) * (Math.PI / 180);
     return {
       x: 50 + radius * Math.cos(rad),
       y: 50 + radius * Math.sin(rad),
@@ -51,13 +53,13 @@ export function SymmetricalClockWidget({
     const angleRad = Math.atan2(e.clientY - centerY, e.clientX - centerX);
     let angleDeg = angleRad * (180 / Math.PI); // -180 to 180
 
-    // Transform angle to be relative to vertical top (12 o'clock = 0 degrees)
-    // 12 o'clock is -90 degrees in SVG space
-    let relativeAngle = angleDeg + 90;
+    // Transform angle to be relative to vertical bottom (6 o'clock = 0 degrees)
+    // 6 o'clock is +90 degrees in SVG space
+    let relativeAngle = angleDeg - 90;
     if (relativeAngle < -180) relativeAngle += 360;
     if (relativeAngle > 180) relativeAngle -= 360;
 
-    // Enforce absolute half-angle from vertical top (0 to 180 degrees)
+    // Enforce absolute half-angle from vertical bottom (0 to 180 degrees)
     let newHalfAngle = Math.abs(relativeAngle);
 
     // Apply snap increment
