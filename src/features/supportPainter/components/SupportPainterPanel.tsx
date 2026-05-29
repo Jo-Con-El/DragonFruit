@@ -252,10 +252,36 @@ export function SupportPainterPanel({
     setIsScanning(true);
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      const minimaList = await invoke<{ vertexIndex: number; position: any; seedTriangleId: number }[]>(
-        'find_all_local_minima',
-        { modelId: activeModelId }
-      );
+      let minimaList: { vertexIndex: number; position: any; seedTriangleId: number }[] = [];
+      try {
+        minimaList = await invoke('find_all_local_minima', { modelId: activeModelId });
+      } catch (err: any) {
+        if (typeof err === 'string' && err.includes('is not initialized')) {
+          console.log('[SupportPainterPanel] Model not in Rust cache. Initializing now...');
+          const activeMesh = getActiveMesh?.();
+          if (!activeMesh) {
+            throw new Error('Active mesh not available');
+          }
+          
+          let geom = activeMesh.geometry;
+          let needsDispose = false;
+          if (geom.index) {
+            geom = geom.toNonIndexed();
+            needsDispose = true;
+          }
+          const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
+          const positions = Array.from(posAttr.array);
+          if (needsDispose) {
+            geom.dispose();
+          }
+          
+          await invoke('initialize_support_painter_model', { modelId: activeModelId, positions });
+          console.log('[SupportPainterPanel] Rust model cache initialized. Retrying scan...');
+          minimaList = await invoke('find_all_local_minima', { modelId: activeModelId });
+        } else {
+          throw err;
+        }
+      }
       
       if (minimaList.length === 0) {
         supportPainterStore.showToast(['No new local vertical minima detected.']);
