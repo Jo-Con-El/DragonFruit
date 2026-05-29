@@ -2635,6 +2635,13 @@ export function useSceneCollectionManager() {
     setActiveModelId(nextActiveModelId);
     setSelectedModelIds(nextSelectedModelIds);
 
+    // Evict cached model topologies from the Rust backend cache to prevent memory leaks
+    ids.forEach((id) => {
+      import('@tauri-apps/api/core')
+        .then(({ invoke }) => invoke('clear_support_painter_model', { modelId: id }))
+        .catch((err) => console.warn('[SceneCollection] Failed to clear support painter model cache', err));
+    });
+
     // Clean up associated supports before capturing the "after" snapshot so undo/redo remains atomic.
     let totalRemovedSupports = 0;
     if (includeSupportHistory) {

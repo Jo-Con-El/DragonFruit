@@ -252,44 +252,52 @@ export function SupportPainterPanel({
     setIsScanning(true);
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      let minimaList: { vertexIndex: number; position: any; seedTriangleId: number }[] = [];
-      try {
-        minimaList = await invoke('find_all_local_minima', { modelId: activeModelId });
-      } catch (err: any) {
-        if (typeof err === 'string' && err.includes('is not initialized')) {
-          console.log('[SupportPainterPanel] Model not in Rust cache. Initializing now...');
-          const activeMesh = getActiveMesh?.();
-          if (!activeMesh) {
-            throw new Error('Active mesh not available');
-          }
-          
-          let geom = activeMesh.geometry;
-          let needsDispose = false;
-          if (geom.index) {
-            geom = geom.toNonIndexed();
-            needsDispose = true;
-          }
-          const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
-          const positions = Array.from(posAttr.array);
-          if (needsDispose) {
-            geom.dispose();
-          }
-          
-          await invoke('initialize_support_painter_model', { modelId: activeModelId, positions });
-          console.log('[SupportPainterPanel] Rust model cache initialized. Retrying scan...');
-          minimaList = await invoke('find_all_local_minima', { modelId: activeModelId });
-        } else {
-          throw err;
-        }
+      const activeMesh = getActiveMesh?.();
+      if (!activeMesh) {
+        throw new Error('Active mesh not available');
       }
       
+      // Force update the world matrix to propagate any recent rotation/scale/translation from parent groups
+      activeMesh.updateMatrixWorld(true);
+      
+      console.log('[SupportPainterPanel] Extracting transformed world-space positions...');
+      let geom = activeMesh.geometry;
+      let needsDispose = false;
+      if (geom.index) {
+        geom = geom.toNonIndexed();
+        needsDispose = true;
+      }
+      const posAttr = geom.getAttribute('position') as THREE.BufferAttribute;
+      const matrix = activeMesh.matrixWorld;
+      const positions: number[] = [];
+      const tempV = new THREE.Vector3();
+      
+      for (let i = 0; i < posAttr.count; i++) {
+        tempV.set(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+        tempV.applyMatrix4(matrix);
+        positions.push(tempV.x, tempV.y, tempV.z);
+      }
+      
+      if (needsDispose) {
+        geom.dispose();
+      }
+      
+      console.log('[SupportPainterPanel] Updating Rust model cache with current build-plate orientation...');
+      await invoke('initialize_support_painter_model', { modelId: activeModelId, positions });
+      
+      console.log('[SupportPainterPanel] Invoking minima scan on Rust backend...');
+      const minimaList = await invoke<{ vertexIndex: number; position: any; seedTriangleId: number }[]>(
+        'find_all_local_minima',
+        { modelId: activeModelId }
+      );
+      
       if (minimaList.length === 0) {
-        supportPainterStore.showToast(['No new local vertical minima detected.']);
+        supportPainterStore.showToast(['No new local vertical minima detected relative to build plate.']);
       } else {
-        supportPainterStore.commitMinimaIslands(minimaList);
+        supportPainterStore.commitMinimaIslands(minimaList, matrix);
         supportPainterStore.showToast([
           'Minima scan complete!',
-          `Identified and committed ${minimaList.length} island regions.`
+          `Identified and committed ${minimaList.length} island regions relative to build plate.`
         ]);
       }
     } catch (err) {
@@ -427,6 +435,29 @@ export function SupportPainterPanel({
                 );
               })}
             </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleScanMinima}
+              className="w-full !text-[11px] py-1.5 flex items-center justify-center gap-1.5 mt-1 border"
+              disabled={isScanning || !activeModelId}
+              style={{
+                borderColor: 'var(--accent, #4a90e2)',
+                background: 'var(--surface-2)',
+              }}
+            >
+              {isScanning ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ color: 'var(--accent, #4a90e2)' }} />
+                  <span className="font-bold">Scanning Minima Islands...</span>
+                </>
+              ) : (
+                <>
+                  <WandSparkles className="w-3.5 h-3.5" style={{ color: 'var(--accent, #4a90e2)' }} />
+                  <span className="font-bold">Scan for local minima islands</span>
+                </>
+              )}
+            </Button>
           </div>
 
           {/* Custom Brushes Selection Section */}
@@ -1043,25 +1074,7 @@ export function SupportPainterPanel({
                       Strip ROI (Global)
                     </Button>
                   </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={handleScanMinima}
-                    className="w-full !text-[10px] py-1 flex items-center justify-center gap-1.5"
-                    disabled={isScanning || !activeModelId}
-                  >
-                    {isScanning ? (
-                      <>
-                        <RefreshCw className="w-3 h-3 animate-spin" />
-                        Scanning Minima...
-                      </>
-                    ) : (
-                      <>
-                        <WandSparkles className="w-3 h-3" />
-                        Auto-Detect Minima
-                      </>
-                    )}
-                  </Button>
+
                   <Button
                     variant="secondary"
                     size="sm"

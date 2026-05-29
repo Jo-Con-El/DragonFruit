@@ -545,6 +545,89 @@ pub async fn propose_brush_region(
     }
 }
 
+/// Möller–Trumbore ray-triangle intersection algorithm.
+/// Returns Some(t) where t is the distance from orig along dir to the intersection point.
+fn ray_triangle_intersect(
+    orig: &Vec3,
+    dir: &Vec3,
+    v0: &Vec3,
+    v1: &Vec3,
+    v2: &Vec3,
+) -> Option<f32> {
+    let edge1 = Vec3::new(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
+    let edge2 = Vec3::new(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
+
+    // Compute determinant vector pvec
+    let pvec = Vec3::new(
+        dir.y * edge2.z - dir.z * edge2.y,
+        dir.z * edge2.x - dir.x * edge2.z,
+        dir.x * edge2.y - dir.y * edge2.x,
+    );
+    let det = edge1.dot(pvec);
+
+    // If determinant is near zero, ray lies in plane of triangle or is parallel
+    if det.abs() < 1e-8 {
+        return None;
+    }
+
+    let inv_det = 1.0 / det;
+
+    // Calculate distance from v0 to ray origin
+    let tvec = Vec3::new(orig.x - v0.x, orig.y - v0.y, orig.z - v0.z);
+
+    // Calculate u parameter and test bounds
+    let u = tvec.dot(pvec) * inv_det;
+    if u < 0.0 || u > 1.0 {
+        return None;
+    }
+
+    // Calculate qvec
+    let qvec = Vec3::new(
+        tvec.y * edge1.z - tvec.z * edge1.y,
+        tvec.z * edge1.x - tvec.x * edge1.z,
+        tvec.x * edge1.y - tvec.y * edge1.x,
+    );
+
+    // Calculate v parameter and test bounds
+    let v = dir.dot(qvec) * inv_det;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+
+    // Calculate t parameter
+    let t = edge2.dot(qvec) * inv_det;
+    if t > 1e-5 {
+        Some(t)
+    } else {
+        None
+    }
+}
+
+/// Robust Even-Odd raycasting solidness checker.
+/// Casts a ray in the -Z direction from a slightly perturbed origin to avoid edge/vertex alignment issues.
+/// Returns true if the point lies inside the solid volume of the watertight mesh.
+fn is_point_inside_mesh(orig: &Vec3, mesh: &IndexedMesh) -> bool {
+    let mut hits = 0;
+    let dir = Vec3::new(0.0, 0.0, -1.0);
+
+    // Perturb the origin slightly in X/Y plane to avoid exact vertex/edge alignment
+    let perturbed_orig = Vec3::new(
+        orig.x + 1.123e-5,
+        orig.y + 2.456e-5,
+        orig.z
+    );
+
+    let tri_count = mesh.triangle_count();
+    for fi in 0..tri_count {
+        let [v0, v1, v2] = mesh.tri_positions(fi as u32);
+        if ray_triangle_intersect(&perturbed_orig, &dir, &v0, &v1, &v2).is_some() {
+            hits += 1;
+        }
+    }
+
+    hits % 2 == 1
+}
+
 /// A detected local vertical minimum.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -571,9 +654,10 @@ pub async fn find_all_local_minima(model_id: String) -> Result<Vec<LocalMinimum>
         let tri_count = mesh.triangle_count();
         let vert_count = mesh.vertex_count();
 
-        // 1. Build vertex-to-vertex adjacency map and vertex-to-face seed map
+        // 1. Build vertex-to-vertex adjacency map, vertex-to-face seed map, and adjacent faces list
         let mut adj_vertices = vec![HashSet::new(); vert_count];
         let mut vert_to_face = vec![u32::MAX; vert_count];
+        let mut vert_to_faces = vec![Vec::new(); vert_count];
 
         for fi in 0..tri_count {
             let tri = mesh.triangles[fi];
@@ -583,6 +667,7 @@ pub async fn find_all_local_minima(model_id: String) -> Result<Vec<LocalMinimum>
                 adj_vertices[u as usize].insert(v);
                 adj_vertices[u as usize].insert(w);
                 vert_to_face[u as usize] = face_id;
+                vert_to_faces[u as usize].push(face_id);
             }
         }
 
@@ -605,11 +690,40 @@ pub async fn find_all_local_minima(model_id: String) -> Result<Vec<LocalMinimum>
             }
 
             if is_minimum {
-                local_minima.push(LocalMinimum {
-                    vertex_index: vi as u32,
-                    position: mesh.positions[vi],
-                    seed_triangle_id: vert_to_face[vi],
-                });
+                // Compute the vertex normal Z-component as a fast heuristic
+                let mut v_normal = Vec3::new(0.0, 0.0, 0.0);
+                for &fi in &vert_to_faces[vi] {
+                    let fnorm = cached.normals[fi as usize];
+                    v_normal.x += fnorm.x;
+                    v_normal.y += fnorm.y;
+                    v_normal.z += fnorm.z;
+                }
+                let len = (v_normal.x * v_normal.x + v_normal.y * v_normal.y + v_normal.z * v_normal.z).sqrt();
+                let nz = if len > 0.0 { v_normal.z / len } else { 0.0 };
+
+                // Hybrid Filtration:
+                // - If the normal is clearly pointing downwards (nz < -0.05), it is a valid bottom overhang.
+                // - If the normal is flat or pointing upwards (nz >= -0.05), it could be a top-surface concavity.
+                //   We run the robust global Even-Odd raycast filter on these potential top-surface candidates.
+                let mut keep = true;
+                if nz >= -0.05 {
+                    let test_pt = Vec3::new(
+                        mesh.positions[vi].x,
+                        mesh.positions[vi].y,
+                        mesh.positions[vi].z - 1e-4
+                    );
+                    if is_point_inside_mesh(&test_pt, mesh) {
+                        keep = false;
+                    }
+                }
+
+                if keep {
+                    local_minima.push(LocalMinimum {
+                        vertex_index: vi as u32,
+                        position: mesh.positions[vi],
+                        seed_triangle_id: vert_to_face[vi],
+                    });
+                }
             }
         }
 
@@ -671,5 +785,167 @@ mod tests {
             }
         }
         assert!(is_minimum);
+    }
+
+    #[test]
+    fn test_local_minima_top_surface_filtration() {
+        // Construct an upright watertight cup mesh.
+        // v0-v3: Outer bottom Z=0.0
+        // v4: Bottom outer tip at Z=-0.5 (True downward overhang minimum)
+        // v5-v8: Outer top rim Z=2.0
+        // v9-v12: Inner top rim Z=2.0
+        // v13-v16: Inner bottom floor Z=1.0
+        // v17: Inner bottom tip at Z=0.5 (Top-surface concavity, local minimum but not overhang)
+        let v0 = [-2.0, -2.0, 0.0];
+        let v1 = [2.0, -2.0, 0.0];
+        let v2 = [2.0, 2.0, 0.0];
+        let v3 = [-2.0, 2.0, 0.0];
+        let v4 = [0.0, 0.0, -0.5];
+
+        let v5 = [-2.0, -2.0, 2.0];
+        let v6 = [2.0, -2.0, 2.0];
+        let v7 = [2.0, 2.0, 2.0];
+        let v8 = [-2.0, 2.0, 2.0];
+
+        let v9 = [-1.5, -1.5, 2.0];
+        let v10 = [1.5, -1.5, 2.0];
+        let v11 = [1.5, 1.5, 2.0];
+        let v12 = [-1.5, 1.5, 2.0];
+
+        let v13 = [-1.5, -1.5, 1.0];
+        let v14 = [1.5, -1.5, 1.0];
+        let v15 = [1.5, 1.5, 1.0];
+        let v16 = [-1.5, 1.5, 1.0];
+        let v17 = [0.0, 0.0, 0.5];
+
+        let vertices = vec![
+            v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17
+        ];
+
+        let mut soup = Vec::new();
+        let mut push_tri = |a: usize, b: usize, c: usize| {
+            soup.extend_from_slice(&[
+                vertices[a][0], vertices[a][1], vertices[a][2],
+                vertices[b][0], vertices[b][1], vertices[b][2],
+                vertices[c][0], vertices[c][1], vertices[c][2],
+            ]);
+        };
+
+        // Outer bottom CCW from bottom
+        push_tri(4, 1, 0);
+        push_tri(4, 2, 1);
+        push_tri(4, 3, 2);
+        push_tri(4, 0, 3);
+
+        // Outer walls CCW from outside
+        push_tri(0, 1, 6); push_tri(0, 6, 5);
+        push_tri(1, 2, 7); push_tri(1, 7, 6);
+        push_tri(2, 3, 8); push_tri(2, 8, 7);
+        push_tri(3, 0, 5); push_tri(3, 5, 8);
+
+        // Top rim CCW from top
+        push_tri(5, 6, 10); push_tri(5, 10, 9);
+        push_tri(6, 7, 11); push_tri(6, 11, 10);
+        push_tri(7, 8, 12); push_tri(7, 12, 11);
+        push_tri(8, 5, 9); push_tri(8, 9, 12);
+
+        // Inner walls CCW from inside void
+        push_tri(9, 13, 14); push_tri(9, 14, 10);
+        push_tri(10, 14, 15); push_tri(10, 15, 11);
+        push_tri(11, 15, 16); push_tri(11, 16, 12);
+        push_tri(12, 16, 13); push_tri(12, 13, 9);
+
+        // Inner bottom CCW from inside void
+        push_tri(17, 13, 14);
+        push_tri(17, 14, 15);
+        push_tri(17, 15, 16);
+        push_tri(17, 16, 13);
+
+        let mesh = IndexedMesh::from_triangle_soup(&soup, 1e-5);
+
+        // Calculate face normals
+        let mut normals = Vec::new();
+        for fi in 0..mesh.triangle_count() {
+            normals.push(mesh.tri_normal(fi as u32));
+        }
+
+        // Build adjacency and vert_to_faces
+        let mut adj_vertices = vec![HashSet::new(); mesh.vertex_count()];
+        let mut vert_to_face = vec![u32::MAX; mesh.vertex_count()];
+        let mut vert_to_faces = vec![Vec::new(); mesh.vertex_count()];
+
+        for fi in 0..mesh.triangle_count() {
+            let tri = mesh.triangles[fi];
+            let face_id = fi as u32;
+            for &(u, v, w) in &[(tri[0], tri[1], tri[2]), (tri[1], tri[2], tri[0]), (tri[2], tri[0], tri[1])] {
+                adj_vertices[u as usize].insert(v);
+                adj_vertices[u as usize].insert(w);
+                vert_to_face[u as usize] = face_id;
+                vert_to_faces[u as usize].push(face_id);
+            }
+        }
+
+        let mut kept_minima = Vec::new();
+        for vi in 0..mesh.vertex_count() {
+            let z_i = mesh.positions[vi].z;
+            let mut is_minimum = true;
+            let neighbors = &adj_vertices[vi];
+            if neighbors.is_empty() {
+                continue;
+            }
+            for &neighbor in neighbors {
+                if mesh.positions[neighbor as usize].z <= z_i {
+                    is_minimum = false;
+                    break;
+                }
+            }
+
+            if is_minimum {
+                let mut v_normal = Vec3::new(0.0, 0.0, 0.0);
+                for &fi in &vert_to_faces[vi] {
+                    let fnorm = normals[fi as usize];
+                    v_normal.x += fnorm.x;
+                    v_normal.y += fnorm.y;
+                    v_normal.z += fnorm.z;
+                }
+                let len = (v_normal.x * v_normal.x + v_normal.y * v_normal.y + v_normal.z * v_normal.z).sqrt();
+                let nz = if len > 0.0 { v_normal.z / len } else { 0.0 };
+
+                let mut keep = true;
+                if nz >= -0.05 {
+                    let test_pt = Vec3::new(
+                        mesh.positions[vi].x,
+                        mesh.positions[vi].y,
+                        mesh.positions[vi].z - 1e-4
+                    );
+                    if is_point_inside_mesh(&test_pt, &mesh) {
+                        keep = false;
+                    }
+                }
+                if keep {
+                    kept_minima.push(vi);
+                }
+            }
+        }
+
+        // Locate welded indices of v4 and v17 dynamically by their unique coordinates
+        let mut index_v4 = None;
+        let mut index_v17 = None;
+        for i in 0..mesh.vertex_count() {
+            let pos = mesh.positions[i];
+            if (pos.x - 0.0).abs() < 1e-4 && (pos.y - 0.0).abs() < 1e-4 && (pos.z - (-0.5)).abs() < 1e-4 {
+                index_v4 = Some(i);
+            }
+            if (pos.x - 0.0).abs() < 1e-4 && (pos.y - 0.0).abs() < 1e-4 && (pos.z - 0.5).abs() < 1e-4 {
+                index_v17 = Some(i);
+            }
+        }
+        let index_v4 = index_v4.expect("Failed to locate welded v4 vertex");
+        let index_v17 = index_v17.expect("Failed to locate welded v17 vertex");
+
+        // Verify that only the bottom outer tip is kept,
+        // and the inner bottom tip is successfully filtered out!
+        assert!(kept_minima.contains(&index_v4));
+        assert!(!kept_minima.contains(&index_v17));
     }
 }

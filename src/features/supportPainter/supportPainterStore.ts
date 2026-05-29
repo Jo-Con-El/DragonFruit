@@ -668,7 +668,7 @@ export const supportPainterStore = {
     }
   },
 
-  commitMinimaIslands(minimaList: { seedTriangleId: number }[]) {
+  commitMinimaIslands(minimaList: { seedTriangleId: number }[], matrixWorld?: THREE.Matrix4) {
     if (!clientAdjacencyMap || minimaList.length === 0) return;
 
     const beforeState = new Map(regions);
@@ -678,14 +678,14 @@ export const supportPainterStore = {
     
     // Choose the first scanned coordinate as the global seed for reference
     const primarySeed = minimaList[0].seedTriangleId;
-    const dummyMatrix = new THREE.Matrix4();
+    const activeMatrix = matrixWorld || new THREE.Matrix4();
 
     for (const item of minimaList) {
       const proposedIds = proposeRegionOnClient(
         clientAdjacencyMap,
         item.seedTriangleId,
         'ManualCircle',
-        dummyMatrix,
+        activeMatrix,
         0.1 // 0.2mm diameter = 0.1mm radius
       );
       for (const id of proposedIds) {
