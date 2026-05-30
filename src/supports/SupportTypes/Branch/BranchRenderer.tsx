@@ -98,10 +98,10 @@ export const BranchRenderer = React.memo(function BranchRenderer({
       scene,
       initialEvent: e,
       modelId: branch.modelId,
-      onHit: ({ point, surfaceNormal }: ContactDiskDragHit) => {
+      onHit: ({ point, surfaceNormal, mesh }: ContactDiskDragHit) => {
         const latest = getSnapshot().branches[branch.id];
         if (!latest?.contactCone) return;
-        liveDragConeRef.current = recomputeContactConeForMovedDisk(latest.contactCone, point, surfaceNormal, socketAnchor);
+        liveDragConeRef.current = recomputeContactConeForMovedDisk(latest.contactCone, point, surfaceNormal, socketAnchor, mesh);
         setDragTick(t => t + 1);
       },
       onEnd: () => {

@@ -242,7 +242,7 @@ function branchCollidesWithMesh(
     mesh: THREE.Mesh,
     shaftDiameterMm: number
 ): boolean {
-    const { branch } = buildBranchData({ tipPos, tipNormal, modelId, parentKnot: knot });
+    const { branch } = buildBranchData({ tipPos, tipNormal, modelId, parentKnot: knot, mesh });
     const radius = shaftDiameterMm / 2 + 0.25;
 
     const raycaster = new THREE.Raycaster();
@@ -278,8 +278,9 @@ function tryBuildAutoLeafDecision(args: {
     tipNormal: Vec3;
     modelId: string;
     settings: DecideGridPlacementArgs['settings'];
+    mesh?: THREE.Mesh;
 }): GridPlacementDecision | null {
-    const { nodeKey, hostTrunkId, knot, tipPos, tipNormal, modelId, settings } = args;
+    const { nodeKey, hostTrunkId, knot, tipPos, tipNormal, modelId, settings, mesh } = args;
     const dx = tipPos.x - knot.pos.x;
     const dy = tipPos.y - knot.pos.y;
     const dz = tipPos.z - knot.pos.z;
@@ -302,6 +303,7 @@ function tryBuildAutoLeafDecision(args: {
         modelId,
         parentKnot: knot,
         hostDiameterMm,
+        mesh,
     });
 
     return {
@@ -496,7 +498,7 @@ export function decideGridPlacement(args: DecideGridPlacementArgs): GridPlacemen
 
     // Near-plate contacts get a minimal anchor support instead of trunk/branch
     if (tipPos.z < ANCHOR_HEIGHT_THRESHOLD_MM) {
-        const { anchor, supportData } = buildAnchorData({ tipPos, tipNormal, modelId });
+        const { anchor, supportData } = buildAnchorData({ tipPos, tipNormal, modelId, mesh });
         return { kind: 'place_anchor', anchor, supportData };
     }
 
@@ -599,6 +601,7 @@ export function decideGridPlacement(args: DecideGridPlacementArgs): GridPlacemen
                 tipNormal,
                 modelId,
                 parentKnot: fallbackHost.knot,
+                mesh,
             });
             return {
                 kind: 'place_branch',
@@ -669,6 +672,7 @@ export function decideGridPlacement(args: DecideGridPlacementArgs): GridPlacemen
                 tipNormal,
                 modelId,
                 parentKnot: fallbackHost.knot,
+                mesh,
             });
             return {
                 kind: 'place_branch',
@@ -698,6 +702,7 @@ export function decideGridPlacement(args: DecideGridPlacementArgs): GridPlacemen
         tipNormal,
         modelId,
         parentKnot: selectedKnot,
+        mesh,
     });
 
     const hostTrunkContactZ = host.trunk.contactCone?.pos.z ?? Number.NEGATIVE_INFINITY;

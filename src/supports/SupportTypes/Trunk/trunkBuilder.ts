@@ -8,8 +8,9 @@
 import * as THREE from 'three';
 import { Vec3, Roots, Trunk, Segment, Joint } from '../../types';
 import type { ContactCone, SupportTipProfile } from '../../SupportPrimitives/ContactCone/types';
-import { getSocketPosition } from '../../SupportPrimitives/ContactCone/contactConeUtils';
+import { getFinalSocketPosition, getSocketPosition } from '../../SupportPrimitives/ContactCone/contactConeUtils';
 import { calculateDiskThickness } from '../../SupportPrimitives/ContactDisk/contactDiskUtils';
+import { recomputeContactConeForMovedDisk } from '../../SupportPrimitives/ContactDisk';
 import { getJointDiameter } from '../../constants';
 import { getSettings } from '../../Settings';
 import type { SupportData } from '../../rendering/SupportBuilder';
@@ -175,7 +176,7 @@ export function buildTrunkData(input: TrunkBuildInput): TrunkBuildResult {
 }
 
 export function buildTrunkDataFromPlacement(input: TrunkBuildInput, placement: TrunkPlacementResult): TrunkBuildResult {
-    const { tipPos, tipNormal, modelId, overrides } = input;
+    const { tipPos, tipNormal, modelId, overrides, mesh } = input;
     const settings = getSettings();
     const settingsCodeHex = encodeSupportSettingsHex(settings);
     const tipProfile = buildTipProfile(settings, overrides);
@@ -195,9 +196,27 @@ export function buildTrunkDataFromPlacement(input: TrunkBuildInput, placement: T
         z: tipPos.z + tipNormal.z * diskThickness,
     };
 
-    // Always derive socket from the live tip pose so cone/body stay locked even
-    // when route data came from a quantised preview cache entry.
     const liveSocketPos = getSocketPosition(coneStartPos, effectiveConeAxis, tipProfile);
+    const solverSocketPos = placement.socketPos ?? liveSocketPos;
+    const solverSocketDeltaSq =
+        (solverSocketPos.x - liveSocketPos.x) ** 2
+        + (solverSocketPos.y - liveSocketPos.y) ** 2
+        + (solverSocketPos.z - liveSocketPos.z) ** 2;
+    const contactConeTemplate: ContactCone = recomputeContactConeForMovedDisk(
+        {
+            id: '__solver-authored-socket__',
+            pos: tipPos,
+            normal: effectiveConeAxis,
+            surfaceNormal: tipNormal,
+            diskLengthOverride: tipDiskLengthOverrideMm,
+            profile: tipProfile,
+        },
+        tipPos,
+        tipNormal,
+        solverSocketPos,
+        mesh,
+    );
+    const resolvedSocketPos = getFinalSocketPosition(contactConeTemplate);
     const rootsTopZ = diskHeight + coneHeight;
     const routeJoints = placement.joints ? [...placement.joints] : [];
     const isStraightSupport = routeJoints.length === 0;
@@ -206,13 +225,13 @@ export function buildTrunkDataFromPlacement(input: TrunkBuildInput, placement: T
         ? withCentralStraightSupportJoint({
             basePos: placement.basePos,
             rootTopZ: rootsTopZ,
-            socketPos: liveSocketPos,
+            socketPos: resolvedSocketPos,
         })
         : initialConstructionJoints;
     const normalizedConstructionJoints = normalizeFirstConstructionJoint({
         basePos: placement.basePos,
         rootTopZ: rootsTopZ,
-        socketPos: liveSocketPos,
+        socketPos: resolvedSocketPos,
         routeJoints,
         constructionJoints: initialConstructionJoints.length > 0
             ? initialConstructionJoints
@@ -222,7 +241,7 @@ export function buildTrunkDataFromPlacement(input: TrunkBuildInput, placement: T
     const routeBase: TrunkRouteResult = {
         kind: isStraightSupport ? 'straight' : 'routed',
         basePos: placement.basePos,
-        socketPos: liveSocketPos,
+        socketPos: resolvedSocketPos,
         unsnappedBottomPos: placement.unsnappedBottomPos ?? placement.basePos,
         joints: routeJoints,
         constructionJoints: normalizedConstructionJoints,
@@ -341,13 +360,9 @@ export function buildTrunkDataFromPlacement(input: TrunkBuildInput, placement: T
 
     // Build ContactCone
     const contactCone: ContactCone = {
+        ...contactConeTemplate,
         id: contactConeId,
-        pos: tipPos,
-        normal: effectiveConeAxis, // Cone axis may differ from surface normal due to tilt rules
-        surfaceNormal: tipNormal, // The actual surface normal
-        diskLengthOverride: tipDiskLengthOverrideMm,
-        profile: tipProfile,
-        socketJointId: socketJointId // Link to unique socket ID
+        socketJointId: socketJointId,
     };
 
     // Build Trunk

@@ -65,3 +65,17 @@ test('buildTrunkDataFromPlacement still inserts a construction joint for straigh
     assert.equal(built.route.constructionJoints.length, 1);
     assert.equal(built.trunk.segments.length, 2);
 });
+
+test('buildTrunkDataFromPlacement preserves a solver-authored offset socket in the cone geometry', () => {
+    const built = buildTrunkDataFromPlacement(
+        makeInput(),
+        makePlacement({
+            socketPos: { x: 2, y: 0, z: 10 },
+        }),
+    );
+
+    assert.deepEqual(built.route.socketPos, { x: 2, y: 0, z: 10 });
+    assert.equal(built.trunk.contactCone.pos.x, 0);
+    assert.equal(built.trunk.contactCone.pos.y, 0);
+    assert.equal(built.trunk.contactCone.normal.x > 0, true);
+});

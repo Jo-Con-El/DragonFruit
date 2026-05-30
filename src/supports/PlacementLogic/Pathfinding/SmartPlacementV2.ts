@@ -73,6 +73,8 @@ const MIN_ROUTING_SEARCH_LATERAL_MM = 60;
 const MAX_ROUTING_SEARCH_LATERAL_MM = 120;
 const ROUTING_SEARCH_LATERAL_PER_VERTICAL_MM = 3.0;
 const ROUTING_SEARCH_SWEEP_RADII_MM = [1, 2, 3, 4, 6, 8, 10, 14, 18, 24, 30, 36, 44, 52, 60, 72, 84, 96, 108];
+const STRAIGHT_SOCKET_RESCUE_RADII_MM = [0, 0.5, 1, 1.5, 2, 3, 4, 6];
+const STRAIGHT_SOCKET_RESCUE_DIRECTIONS = 16;
 const BASE_WIDE_PASS_EXPANSIONS_AT_2MM = 600;
 const BASE_PREVIEW_WIDE_PASS_EXPANSIONS_AT_2MM = 250;
 
@@ -129,6 +131,77 @@ export function getSmartPlacementV2SearchEnvelope(args: {
         maxTotalLateralMm,
         rescueSweepRadiiMm,
     };
+}
+
+export function buildStraightSocketRescueCandidates(args: {
+    socketPos: Vec3;
+    maxTotalLateralMm: number;
+}): Vec3[] {
+    const maxRadius = Math.max(0, Math.min(args.maxTotalLateralMm, STRAIGHT_SOCKET_RESCUE_RADII_MM[STRAIGHT_SOCKET_RESCUE_RADII_MM.length - 1]));
+    const candidates: Vec3[] = [{ ...args.socketPos }];
+
+    for (const radius of STRAIGHT_SOCKET_RESCUE_RADII_MM) {
+        if (radius <= 0 || radius > maxRadius + 0.000001) continue;
+        for (let dir = 0; dir < STRAIGHT_SOCKET_RESCUE_DIRECTIONS; dir++) {
+            const angle = (dir / STRAIGHT_SOCKET_RESCUE_DIRECTIONS) * Math.PI * 2;
+            candidates.push({
+                x: args.socketPos.x + Math.cos(angle) * radius,
+                y: args.socketPos.y + Math.sin(angle) * radius,
+                z: args.socketPos.z,
+            });
+        }
+    }
+
+    return candidates;
+}
+
+export function findStraightSocketRescueCandidate(args: {
+    socketPos: Vec3;
+    rootTopZ: number;
+    maxTotalLateralMm: number;
+    gridEnabled: boolean;
+    spacingMm: number;
+    maxNearestNodeSearchRings: number;
+    sdf: SDFCache;
+    diskHeight: number;
+    coneHeight: number;
+    rootsRadius: number;
+    shaftRadius: number;
+    clearance: number;
+    buildNearestCandidateNodeKeys?: (preferredKey: string, maxRings: number) => string[];
+    subGridOffset?: { x: number; y: number } | null;
+}): { socketPos: Vec3; base: ResolvedBaseCandidate } | null {
+    const candidates = buildStraightSocketRescueCandidates({
+        socketPos: args.socketPos,
+        maxTotalLateralMm: args.maxTotalLateralMm,
+    });
+
+    for (const candidateSocketPos of candidates) {
+        const resolved = resolveCommittedBaseCandidate({
+            preferredBottomPos: { x: candidateSocketPos.x, y: candidateSocketPos.y, z: 0 },
+            lastSegmentStart: candidateSocketPos,
+            rootTopZ: args.rootTopZ,
+            gridEnabled: args.gridEnabled,
+            spacingMm: args.spacingMm,
+            maxNearestNodeSearchRings: args.maxNearestNodeSearchRings,
+            sdf: args.sdf,
+            diskHeight: args.diskHeight,
+            coneHeight: args.coneHeight,
+            rootsRadius: args.rootsRadius,
+            shaftRadius: args.shaftRadius,
+            clearance: args.clearance,
+            buildNearestCandidateNodeKeys: args.buildNearestCandidateNodeKeys,
+            subGridOffset: args.subGridOffset,
+        });
+        if (resolved) {
+            return {
+                socketPos: candidateSocketPos,
+                base: resolved,
+            };
+        }
+    }
+
+    return null;
 }
 
 function getWidePassBaseExpansionsAt2mm(maxTotalLateralMm: number, isPreview: boolean): number {
@@ -469,6 +542,44 @@ export function calculateSmartPlacementV2(
         return standard; // Shaft is clear and roots fit — no routing needed
     }
 
+    const straightRescue = findStraightSocketRescueCandidate({
+        socketPos,
+        rootTopZ,
+        maxTotalLateralMm,
+        gridEnabled: settings.grid.enabled,
+        spacingMm: settings.grid.spacingMm,
+        maxNearestNodeSearchRings: MAX_NEAREST_NODE_SEARCH_RINGS,
+        sdf,
+        diskHeight,
+        coneHeight,
+        rootsRadius,
+        shaftRadius,
+        clearance,
+        buildNearestCandidateNodeKeys,
+        subGridOffset: !settings.grid.enabled ? {
+            x: input.tipPos.x - Math.round(input.tipPos.x / FINE_ASTAR_STEP_MM) * FINE_ASTAR_STEP_MM,
+            y: input.tipPos.y - Math.round(input.tipPos.y / FINE_ASTAR_STEP_MM) * FINE_ASTAR_STEP_MM,
+        } : null,
+    });
+
+    if (straightRescue) {
+        if (!isPreview) {
+            console.log(
+                `[SmartPlacementV2] STRAIGHT rescue — socket=(${straightRescue.socketPos.x.toFixed(2)},${straightRescue.socketPos.y.toFixed(2)},${straightRescue.socketPos.z.toFixed(2)}) base=(${straightRescue.base.basePos.x.toFixed(2)},${straightRescue.base.basePos.y.toFixed(2)},${straightRescue.base.basePos.z.toFixed(2)})`,
+            );
+        }
+        return {
+            ...standard,
+            socketPos: straightRescue.socketPos,
+            basePos: straightRescue.base.basePos,
+            unsnappedBottomPos: { x: straightRescue.socketPos.x, y: straightRescue.socketPos.y, z: 0 },
+            snappedNodeKey: straightRescue.base.nodeKey,
+            joints: [],
+            constructionJoints: [],
+            error: undefined,
+        };
+    }
+
     // 3b. Spatial caches: skip A* if a previous search from a nearby socketPos
     //     already stagnated (cavity) or exhausted the preview budget.
     //     This turns repeated probes at similar positions from ~600 A* expansions
@@ -685,7 +796,12 @@ export function calculateSmartPlacementV2(
                     if (_dxy0 < _bestZeroDxy) {
                         _bestZeroDxy = _dxy0;
                         _finalJoints = [];
-                        _finalBase = { basePos: { x: sc.x, y: sc.y, z: 0 }, snapDistance: 0, nodeKey: null };
+                        _finalBase = {
+                            basePos: { x: sc.x, y: sc.y, z: 0 },
+                            rootTopTarget: _crt,
+                            snapDistance: 0,
+                            nodeKey: null,
+                        };
                         _finalRootTop = _crt;
                     }
                     return true;
@@ -904,6 +1020,7 @@ export function calculateSmartPlacementV2(
                         _finalJoints = [_bestOneJoint.joint];
                         _finalBase = {
                             basePos: { x: _bestOneJoint.baseXY.x, y: _bestOneJoint.baseXY.y, z: 0 },
+                            rootTopTarget: { x: _bestOneJoint.baseXY.x, y: _bestOneJoint.baseXY.y, z: rootTopZ },
                             snapDistance: 0,
                             nodeKey: null,
                         };
@@ -992,6 +1109,7 @@ export function calculateSmartPlacementV2(
                                 _finalJoints = [_j1u, _bestTJ.j2];
                                 _finalBase = {
                                     basePos: { x: _bestTJ.baseXY.x, y: _bestTJ.baseXY.y, z: 0 },
+                                    rootTopTarget: { x: _bestTJ.baseXY.x, y: _bestTJ.baseXY.y, z: rootTopZ },
                                     snapDistance: 0,
                                     nodeKey: null,
                                 };

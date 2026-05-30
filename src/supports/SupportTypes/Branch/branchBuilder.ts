@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Branch, Joint, Knot, Segment, Vec3 } from '../../types';
 import type { ContactCone, SupportTipProfile } from '../../SupportPrimitives/ContactCone/types';
 import { getSocketPosition } from '../../SupportPrimitives/ContactCone/contactConeUtils';
-import { calculateDiskThickness } from '../../SupportPrimitives/ContactDisk/contactDiskUtils';
+import { recomputeContactConeForMovedDisk } from '../../SupportPrimitives/ContactDisk';
 import type { SupportData } from '../../rendering/SupportBuilder';
 import { getSettings } from '../../Settings';
 import { getJointDiameter } from '../../constants';
@@ -21,6 +21,7 @@ export interface BranchBuildInput {
     tipNormal: Vec3;
     modelId: string;
     parentKnot: Knot;
+    mesh?: THREE.Mesh;
 }
 
 export interface BranchBuildResult {
@@ -36,7 +37,7 @@ export interface BranchBuildResult {
  * - Contact cone at the tip
  */
 export function buildBranchData(input: BranchBuildInput): BranchBuildResult {
-    const { tipPos, tipNormal, modelId, parentKnot } = input;
+    const { tipPos, tipNormal, modelId, parentKnot, mesh } = input;
 
     const settings = getSettings();
     const settingsCodeHex = encodeSupportSettingsHex(settings);
@@ -64,18 +65,28 @@ export function buildBranchData(input: BranchBuildInput): BranchBuildResult {
     const shaftDiameter = settings.shaft.diameterMm;
     const jointDiameter = getJointDiameter(shaftDiameter);
 
-    // Calculate disk offset and socket position (matches renderer logic)
-    const diskThickness = tipProfile.type === 'disk'
-        ? calculateDiskThickness(tipNormal, effectiveConeAxis, tipProfile)
-        : 0;
-
-    const coneStartPos = {
-        x: tipPos.x + tipNormal.x * diskThickness,
-        y: tipPos.y + tipNormal.y * diskThickness,
-        z: tipPos.z + tipNormal.z * diskThickness,
-    };
-
-    const socketPos = getSocketPosition(coneStartPos, effectiveConeAxis, tipProfile);
+    const authoredCone = recomputeContactConeForMovedDisk(
+        {
+            id: 'preview-branch-cone',
+            pos: tipPos,
+            normal: effectiveConeAxis,
+            surfaceNormal: tipNormal,
+            profile: tipProfile,
+        },
+        tipPos,
+        tipNormal,
+        parentKnot.pos,
+        mesh,
+    );
+    const socketPos = getSocketPosition(
+        {
+            x: authoredCone.pos.x + (authoredCone.surfaceNormal?.x ?? tipNormal.x) * (authoredCone.diskLengthOverride ?? 0),
+            y: authoredCone.pos.y + (authoredCone.surfaceNormal?.y ?? tipNormal.y) * (authoredCone.diskLengthOverride ?? 0),
+            z: authoredCone.pos.z + (authoredCone.surfaceNormal?.z ?? tipNormal.z) * (authoredCone.diskLengthOverride ?? 0),
+        },
+        authoredCone.normal,
+        authoredCone.profile,
+    );
     const socketJoint: Joint = {
         id: uuid(),
         pos: socketPos,
@@ -113,11 +124,8 @@ export function buildBranchData(input: BranchBuildInput): BranchBuildResult {
     };
 
     const contactCone: ContactCone = {
+        ...authoredCone,
         id: uuid(),
-        pos: tipPos,
-        normal: effectiveConeAxis,
-        surfaceNormal: tipNormal,
-        profile: tipProfile,
         socketJointId: socketJoint.id,
     };
 

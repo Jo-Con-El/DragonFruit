@@ -129,10 +129,10 @@ export const LeafRenderer = React.memo(function LeafRenderer({
             scene,
             initialEvent: e,
             modelId: leaf.modelId,
-            onHit: ({ point, surfaceNormal }: ContactDiskDragHit) => {
+            onHit: ({ point, surfaceNormal, mesh }: ContactDiskDragHit) => {
                 const latest = getSnapshot().leaves[leaf.id];
                 if (!latest?.contactCone) return;
-                liveDragConeRef.current = recomputeContactConeForMovedDisk(latest.contactCone, point, surfaceNormal, socketAnchor);
+                liveDragConeRef.current = recomputeContactConeForMovedDisk(latest.contactCone, point, surfaceNormal, socketAnchor, mesh);
                 setDragTick(t => t + 1);
             },
             onEnd: () => {
