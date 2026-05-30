@@ -1352,7 +1352,7 @@ export async function generateSupportsFromPainter(
       console.log(`[SupportScriptingEngine] Proposed tip at (${col.pos.x.toFixed(2)},${col.pos.y.toFixed(2)},${col.pos.z.toFixed(2)}) is unprintable or collides. Perturbing tip destination...`);
       
       let foundAcceptablePerturbation = false;
-      const searchRadiusSteps = [0.4, 0.8, 1.2, 1.6];
+      const searchRadiusSteps = [0.05, 0.10, 0.15, 0.20];
       const searchDirections = 8;
       const angleStep = (Math.PI * 2) / searchDirections;
 

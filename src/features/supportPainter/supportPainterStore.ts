@@ -423,6 +423,8 @@ export const supportPainterStore = {
               regions.delete(otherId);
             } else {
               otherReg.triangleIds = nextOtherSet;
+              otherReg.rleSpans = undefined;
+              otherReg.loops = undefined;
               this.pruneOrphans(otherId);
             }
           }
@@ -469,6 +471,8 @@ export const supportPainterStore = {
       nextSet.add(tid);
     }
     region.triangleIds = nextSet;
+    region.rleSpans = undefined;
+    region.loops = undefined;
 
     // Handle Erode / Push / Merge collisions for the appended stroke triangles
     const isMarker = region.brushType === 'Marker' || (region.customBrush && region.customBrush.baseBrush === 'Marker');
@@ -495,6 +499,8 @@ export const supportPainterStore = {
               regions.delete(otherId);
             } else {
               otherReg.triangleIds = nextOtherSet;
+              otherReg.rleSpans = undefined;
+              otherReg.loops = undefined;
               this.pruneOrphans(otherId);
             }
           }
@@ -520,6 +526,8 @@ export const supportPainterStore = {
             regions.delete(otherId);
           }
           region.triangleIds = nextSet;
+          region.rleSpans = undefined;
+          region.loops = undefined;
         }
       }
     }
@@ -546,6 +554,8 @@ export const supportPainterStore = {
           regions.delete(id);
         } else {
           region.triangleIds = nextSet;
+          region.rleSpans = undefined;
+          region.loops = undefined;
           this.pruneOrphans(id);
         }
       }
@@ -846,7 +856,7 @@ export const supportPainterStore = {
     const beforeSupport = getSupportSnapshot();
 
     const nextRegions = new Map(regions);
-    const nextRA = { ...rA };
+    const nextRA = { ...rA, rleSpans: undefined, loops: undefined };
 
     if (type === 'union') {
       nextRA.triangleIds = new Set([...rA.triangleIds, ...rB.triangleIds]);
@@ -953,7 +963,7 @@ export const supportPainterStore = {
 
     if (mainComponent.size < triangleIds.size) {
       console.log(`[SupportPainterStore] Pruning ${triangleIds.size - mainComponent.size} isolated triangles.`);
-      const nextRegion = { ...region, triangleIds: mainComponent };
+      const nextRegion = { ...region, triangleIds: mainComponent, rleSpans: undefined, loops: undefined };
       regions.set(regionId, nextRegion);
       triangleColorMap = _recomputeTriangleColorMap();
       updateSnapshot();

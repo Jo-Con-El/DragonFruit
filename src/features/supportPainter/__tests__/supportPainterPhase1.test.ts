@@ -157,4 +157,68 @@ describe('Support Painter Phase 1 - Custom Brush Store & Codec Tests', () => {
       assert.strictEqual(region?.customBrush, undefined, 'Legacy ROI region should cleanly parse customBrush as undefined');
     }, 'Deserializing legacy VOXL extensions should be fully safe and backward-compatible');
   });
+
+  it('should always recompute rleSpans dynamically during serialization and invalidate cached spans on mutations', () => {
+    const testRegionId = 'test-rle-invalidation-region';
+    const testModelId = 'test-model-abc';
+
+    // 1. Create a region with a cached, stale rleSpan
+    const testRegion: ROIRegion = {
+      id: testRegionId,
+      brushType: 'MacroFace',
+      seedTriangleId: 10,
+      triangleIds: new Set([10, 11, 12]), // True triangle IDs
+      color: '#4A90E2',
+      proposedOnly: false,
+      createdAt: Date.now(),
+      rleSpans: [{ start: 900, count: 5 }], // Stale cached spans
+      loops: [],
+    };
+
+    const regionsMap = new Map<string, ROIRegion>();
+    regionsMap.set(testRegionId, testRegion);
+    const regionsByModel = new Map<string, Map<string, ROIRegion>>();
+    regionsByModel.set(testModelId, regionsMap);
+
+    // 2. Serialize and verify that stale cached rleSpans was ignored, and dynamic compressRLE was used instead
+    const serialized = serializeROIsForVoxl(regionsByModel, testModelId);
+    assert.strictEqual(serialized.regions[0].rleSpans.length, 1);
+    assert.strictEqual(serialized.regions[0].rleSpans[0].start, 10);
+    assert.strictEqual(serialized.regions[0].rleSpans[0].count, 3, 'Dynamic serialization should always re-compress active triangleIds');
+
+    // 3. Test store mutative invalidation
+    // Initialize the store active model
+    supportPainterStore.setActiveModelId(testModelId);
+    
+    // Set direct committed regions map in the store using restoreRegions
+    supportPainterStore.restoreRegions(regionsMap);
+
+    // Populate loops and rleSpans in the active store region to simulate generated supports
+    const activeRegion = supportPainterStore.getSnapshot().regions.get(testRegionId)!;
+    activeRegion.rleSpans = [{ start: 10, count: 3 }];
+    activeRegion.loops = [[{ x: 0, y: 0 }, { x: 1, y: 1 }]];
+
+    // Run append stroke
+    supportPainterStore.appendTrianglesToRegion(testRegionId, [13, 14]);
+
+    // Verify cache was invalidated
+    const mutatedRegion = supportPainterStore.getSnapshot().regions.get(testRegionId)!;
+    assert.strictEqual(mutatedRegion.triangleIds.size, 5);
+    assert.strictEqual(mutatedRegion.rleSpans, undefined, 'Mutating triangle IDs must invalidate cached rleSpans');
+    assert.strictEqual(mutatedRegion.loops, undefined, 'Mutating triangle IDs must invalidate cached loops');
+
+    // Re-populate and run subtract
+    mutatedRegion.rleSpans = [{ start: 10, count: 5 }];
+    mutatedRegion.loops = [[{ x: 0, y: 0 }]];
+    supportPainterStore.subtractTrianglesFromRegions([14]);
+
+    const subtractedRegion = supportPainterStore.getSnapshot().regions.get(testRegionId)!;
+    assert.strictEqual(subtractedRegion.triangleIds.size, 4);
+    assert.strictEqual(subtractedRegion.rleSpans, undefined, 'Subtracting triangle IDs must invalidate cached rleSpans');
+    assert.strictEqual(subtractedRegion.loops, undefined, 'Subtracting triangle IDs must invalidate cached loops');
+
+    // Clean up store
+    supportPainterStore.clearAll();
+    supportPainterStore.setActiveModelId(null);
+  });
 });

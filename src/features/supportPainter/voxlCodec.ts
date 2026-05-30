@@ -61,7 +61,7 @@ export function serializeROIsForVoxl(
 
   for (const [modelId, modelRegions] of regionsByModel.entries()) {
     for (const r of modelRegions.values()) {
-      const rleSpans = r.rleSpans || compressRLE(Array.from(r.triangleIds));
+      const rleSpans = compressRLE(Array.from(r.triangleIds));
       list.push({
         id: r.id,
         brushType: r.brushType,

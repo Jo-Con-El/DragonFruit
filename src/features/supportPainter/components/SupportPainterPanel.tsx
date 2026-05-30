@@ -338,6 +338,10 @@ export function SupportPainterPanel({
   }
 
   const purgeEmptySessionRois = () => {
+    const state = supportPainterStore.getSnapshot();
+    if (state.roiTrackingMode === 'voxl' || state.roiTrackingMode === 'session') {
+      return;
+    }
     const currentSnapshot = getSupportsSnapshot();
     const currentRegions = Array.from(supportPainterStore.getSnapshot().regions.values());
     const nextRegionsMap = new Map(supportPainterStore.getSnapshot().regions);
