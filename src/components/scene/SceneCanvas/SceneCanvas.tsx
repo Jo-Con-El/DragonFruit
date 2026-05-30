@@ -3201,6 +3201,45 @@ export function SceneCanvas({
     transform,
   ]);
 
+  const footprintOutlineTargets = React.useMemo(() => {
+    const ids = selectedTransformableModelIds.length > 0
+      ? selectedTransformableModelIds
+      : activeModelId
+        ? [activeModelId]
+        : hoveredModelId
+          ? [hoveredModelId]
+          : [];
+
+    const seen = new Set<string>();
+    const targets: Array<{
+      id: string;
+      geometry: LoadedModel['geometry'];
+      transform: ModelTransform;
+    }> = [];
+
+    for (const id of ids) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+
+      const model = modelById.get(id);
+      if (!model || !model.visible) continue;
+
+      targets.push({
+        id,
+        geometry: model.geometry,
+        transform: (id === activeModelId && transform) ? transform : model.transform,
+      });
+    }
+
+    return targets;
+  }, [
+    activeModelId,
+    hoveredModelId,
+    modelById,
+    selectedTransformableModelIds,
+    transform,
+  ]);
+
   const crossSectionStencilSourceVersion = React.useMemo(() => ({
     supportRenderRefreshNonce,
     supportDragTransactionId,
@@ -3674,8 +3713,8 @@ export function SceneCanvas({
   }, [buildPlateOpacity, isCameraBelowBuildPlate]);
 
   const hidePlateContactPrimitives = plateContactCullActive;
-  const hideRaftPrimitives = plateContactCullActive;
-  const hideGridHelpers = plateContactCullActive;
+  const hideRaftPrimitives = false;
+  const hideGridHelpers = false;
   const modifyToolActive = mode === 'prepare' && transformMode === 'transform';
   const navigationLodActive = isOrbitInteracting || isWheelZoomInteracting || spaceMouseNavigationActive || isGizmoDragging || isGizmoRetargeting || isLayerScrubbing;
   const suppressSupportProxyPointerInteraction = supportCreationModeActive || suppressSupportSelectionAndHover || modifyToolActive;
@@ -5464,12 +5503,17 @@ export function SceneCanvas({
                 && !hideFootprintOutlineForPreview
                 && !(transformMode === 'placeOnFace' && disableRaycast)
                 && (
-                <FootprintBorderRenderer
-                  modelGeometry={activeModel ? activeModel.geometry : null}
-                  modelTransform={activeModelTransform}
-                  modelId={activeModelId ?? hoveredModelId ?? null}
-                  color={supportHoverTintColor}
-                />
+                <>
+                  {footprintOutlineTargets.map((entry) => (
+                    <FootprintBorderRenderer
+                      key={`footprint-border-${entry.id}`}
+                      modelGeometry={entry.geometry}
+                      modelTransform={entry.transform}
+                      modelId={entry.id}
+                      color={supportHoverTintColor}
+                    />
+                  ))}
+                </>
               )}
 
               {satDebugTargets.map((entry) => (

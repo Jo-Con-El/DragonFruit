@@ -623,7 +623,8 @@ export function Helpers({
         position={[buildVolumeCenterX, buildVolumeCenterY, buildPlateCenterZ]}
         renderOrder={-10}
         raycast={nullRaycast}
-        visible={shouldShowBuildPlate && clampedBuildPlateOpacity > 0.001}
+        visible={shouldShowBuildPlate}
+        frustumCulled={false}
         userData={{ thumbnailHelperType: 'buildPlate' }}
       >
         <primitive object={buildPlateGeometry} attach="geometry" />
@@ -644,6 +645,7 @@ export function Helpers({
           rotation={[Math.PI / 2, 0, 0]}
           scale={[scaleX, 1, scaleZ]}
           raycast={nullRaycast}
+          frustumCulled={false}
           userData={{ thumbnailHelperType: 'grid' }}
         />
       )}
@@ -651,9 +653,11 @@ export function Helpers({
       {shouldShowGrid && shouldShowBuildPlate && (
         <group
           position={[0, 0, plateLogoZ]}
+          visible={shouldShowBuildPlate && clampedBuildPlateOpacity > 0.001}
+          frustumCulled={false}
           userData={{ thumbnailHelperType: 'grid' }}
         >
-          <mesh position={[plateLogoX, plateLogoY, 0]} renderOrder={20} raycast={nullRaycast}>
+          <mesh position={[plateLogoX, plateLogoY, 0]} renderOrder={20} raycast={nullRaycast} frustumCulled={false}>
             <planeGeometry args={[plateLogoWidth, plateLogoHeight]} />
             <meshBasicMaterial
               map={plateLogoTexture}
@@ -672,7 +676,7 @@ export function Helpers({
 
       {/* Axes: short, thicker arrows hovering slightly above Z0 to avoid grid clipping */}
       {shouldShowGrid && (
-      <group position={[resolvedOriginMinX, resolvedOriginMinY, axisBaseZ]} userData={{ thumbnailHelperType: 'grid' }}>
+      <group position={[resolvedOriginMinX, resolvedOriginMinY, axisBaseZ]} frustumCulled={false} userData={{ thumbnailHelperType: 'grid' }}>
         {/* X axis */}
         <mesh position={[axisLength * 0.5, 0, 0]} rotation={[0, 0, -Math.PI * 0.5]} raycast={nullRaycast}>
           <cylinderGeometry args={[axisShaftRadius, axisShaftRadius, axisLength, 12]} />
@@ -711,7 +715,7 @@ export function Helpers({
 
       {/* FRONT orientation marker locked to grid front edge and constrained within build plate bounds */}
       {shouldShowBuildPlate && (
-      <group position={[buildVolumeCenterX, buildVolumeCenterY + frontMarkerY, 0.001]} userData={{ thumbnailHelperType: 'buildPlate' }}>
+      <group position={[buildVolumeCenterX, buildVolumeCenterY + frontMarkerY, 0.001]} frustumCulled={false} userData={{ thumbnailHelperType: 'buildPlate' }}>
         {frontTexture && (
           <mesh renderOrder={21} raycast={nullRaycast}>
             <planeGeometry args={[frontMarkerWidth, frontMarkerDepth]} />
@@ -732,8 +736,8 @@ export function Helpers({
       )}
 
       {/* Safety margin hazard stripes - semi-transparent red-white diagonal stripes */}
-      {shouldShowBuildPlate && hasSafetyMargins && clampedBuildPlateOpacity > 0.001 && (
-        <group position={[0, 0, plateLogoZ]} userData={{ thumbnailHelperType: 'buildPlate' }}>
+      {shouldShowBuildPlate && hasSafetyMargins && (
+        <group position={[0, 0, plateLogoZ]} visible={clampedBuildPlateOpacity > 0.001} frustumCulled={false} userData={{ thumbnailHelperType: 'buildPlate' }}>
           {/* Front strip */}
           {marginFront > 0 && (
             <mesh
