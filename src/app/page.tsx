@@ -30,6 +30,7 @@ import { VisualSettingsPanel } from '@/components/controls/VisualSettingsPanel';
 import { LayerSlider } from '@/components/controls/LayerSlider';
 import { PrintingLayerGpuPreview } from '@/components/controls/PrintingLayerGpuPreview';
 import { SupportSidebar } from '@/supports/Settings';
+import { SupportPainterTooltipCard } from '@/features/supportPainter/components/SupportPainterTooltipCard';
 import { ExportPanel } from '@/features/export/components/ExportPanel';
 import { ExportManager } from '@/features/export/logic/ExportManager';
 import { resolveEntirePlateExportBaseName } from '@/features/export/logic/exportFileNaming';
@@ -14698,6 +14699,9 @@ export default function Home() {
         ) : (scene.mode === 'support' || scene.mode === 'supportPainter') ? (
           <>
             <SupportSidebar key="support-settings" onModeChange={handleModeChange} />
+            {scene.mode === 'supportPainter' && (
+              <SupportPainterTooltipCard key="support-painter-tooltip" />
+            )}
           </>
         ) : scene.mode === 'printing' ? (
           <>

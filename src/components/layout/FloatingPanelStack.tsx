@@ -964,7 +964,7 @@ export function FloatingPanelStack({ children }: { children: React.ReactNode }) 
             return clampPosition(getAttachmentDesiredPosition(linked, size, linkedParentPos, linkedParentSize), size, containerSize);
           })
           .find((pos): pos is PanelPosition => !!pos) ?? null;
-        const forceAnchoredPanelIds = new Set(['visual-settings', 'support-settings', 'prepare-smoothing-settings']);
+        const forceAnchoredPanelIds = new Set(['visual-settings', 'support-settings', 'support-painter-tooltip', 'prepare-smoothing-settings']);
         const hasProfileAnchor = !!layoutProfile?.anchors?.[panelId];
         const shouldPreferAnchor = !hasManualOverride && !!anchored && (forceAnchoredPanelIds.has(panelId) || hasProfileAnchor || isLockedPanel);
         const shouldPinEdgeAnchor = shouldPreferAnchor && isEdgeAnchored(panelId, layoutProfile);

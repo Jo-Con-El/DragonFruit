@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { Card, CardHeader, IconButton, Button, Toast, ToastViewport } from '@/components/ui/primitives';
 import { supportPainterStore, useSupportPainterState } from '../supportPainterStore';
-import { type BrushType, type CustomBrushTemplate, BRUSH_COLORS } from '../supportPainterTypes';
+import { type BrushType, type CustomBrushTemplate, type CustomSupportOperation, BRUSH_COLORS } from '../supportPainterTypes';
 import { generateSupportsFromPainter, regenerateSupportsForRoi } from '../supportScriptingEngine';
 import { subscribeToSettings, getSettings } from '@/supports/Settings';
 import {
@@ -35,6 +35,7 @@ import { SUPPORT_EDIT_REPLACE } from '@/supports/history/actionTypes';
 import { PAINT_ROI_STRIP, PAINT_ROI_ADD } from '../supportPainterHistoryTypes';
 import { pushHistory } from '@/history/historyStore';
 import { CustomBrushModal } from './CustomBrushModal';
+import { SupportPipelineEditor } from './SupportPipelineEditor';
 
 const BRUSH_DETAILS: Record<
   BrushType,
@@ -197,7 +198,55 @@ export function SupportPainterPanel({
   const [expanded, setExpanded] = useState(false);  // collapsed = support mode, expanded = painter mode
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isScanning, setIsScanning] = useState(false);
+  const [pipelineEditingContext, setPipelineEditingContext] = useState<'active' | 'roi' | null>(null);
+  const [editingPipeline, setEditingPipeline] = useState<CustomSupportOperation[]>([]);
   const activeSelectedIds = selectedIds.filter(id => state.regions.has(id));
+
+  const getDefaultPipeline = (brushType: BrushType): CustomSupportOperation[] => {
+    const isPointPathOrMarker = brushType === 'PointPath' || brushType === 'Marker';
+    return [
+      {
+        type: 'minima',
+        enabled: !isPointPathOrMarker,
+        suppression: {
+          enabled: true,
+          distanceMm: defaultSpacing,
+          suppressAgainst: ['minima'],
+        },
+        spacing: {
+          baseSpacingMm: defaultSpacing,
+        },
+      },
+      {
+        type: 'perimeter',
+        enabled: !isPointPathOrMarker,
+        suppression: {
+          enabled: false,
+          distanceMm: defaultSpacing,
+          suppressAgainst: [],
+        },
+        spacing: {
+          baseSpacingMm: defaultSpacing,
+          solverMode: 'standard',
+          useInflectionPoints: false,
+        },
+      },
+      {
+        type: 'infill',
+        enabled: true,
+        suppression: {
+          enabled: true,
+          distanceMm: defaultSpacing,
+          suppressAgainst: ['minima', 'perimeter', 'infill'],
+        },
+        spacing: {
+          baseSpacingMm: defaultSpacing,
+          infillPattern: 'PoissonDisc',
+          seedFromMinima: true,
+        },
+      },
+    ];
+  };
 
   // Partition regions into Pending vs Completed/Saved History
   const regionsArray = Array.from(state.regions.values());
@@ -1279,7 +1328,10 @@ export function SupportPainterPanel({
             variant="secondary"
             size="sm"
             onClick={() => {
-              // Will be wired in Phase III
+              const activeCustomBrush = state.activeCustomBrushId ? state.customBrushes.get(state.activeCustomBrushId) : undefined;
+              const currentPipeline = state.activeBrushPipeline || (activeCustomBrush?.operations) || getDefaultPipeline(state.activeBrush);
+              setEditingPipeline(JSON.parse(JSON.stringify(currentPipeline)));
+              setPipelineEditingContext('active');
             }}
             className="w-full !text-[11px] py-1.5 flex items-center justify-center gap-1.5"
           >
@@ -1703,7 +1755,12 @@ export function SupportPainterPanel({
                       variant="secondary"
                       size="sm"
                       onClick={() => {
-                        // Will be wired in Phase III
+                        const selectedRegion = state.selectedRegionId ? state.regions.get(state.selectedRegionId) : null;
+                        if (selectedRegion) {
+                          const currentPipeline = selectedRegion.customBrush?.operations || getDefaultPipeline(selectedRegion.brushType);
+                          setEditingPipeline(JSON.parse(JSON.stringify(currentPipeline)));
+                          setPipelineEditingContext('roi');
+                        }
                       }}
                       className="w-full !text-[10px] py-1.5 flex items-center justify-start px-2 gap-1.5"
                       disabled={isBtnDisabled}
@@ -1928,6 +1985,34 @@ export function SupportPainterPanel({
             setShowCustomBrushModal(false);
             setEditingCustomBrush(null);
           }}
+        />
+      )}
+
+      {pipelineEditingContext !== null && (
+        <SupportPipelineEditor
+          initialPipeline={editingPipeline}
+          onChange={setEditingPipeline}
+          onClose={() => setPipelineEditingContext(null)}
+          onSave={async () => {
+            if (pipelineEditingContext === 'active') {
+              supportPainterStore.setActiveBrushPipeline(editingPipeline);
+            } else if (pipelineEditingContext === 'roi') {
+              const activeSelected = state.selectedRegionId ? state.regions.get(state.selectedRegionId) : null;
+              if (activeSelected) {
+                supportPainterStore.updateRegionCustomBrush(activeSelected.id, editingPipeline);
+                const activeMesh = getActiveMesh?.();
+                if (activeModelId && activeMesh) {
+                  void regenerateSupportsForRoi(activeModelId, activeMesh, activeSelected.id);
+                }
+              }
+            }
+            setPipelineEditingContext(null);
+          }}
+          colorTheme={
+            pipelineEditingContext === 'active'
+              ? BRUSH_COLORS[state.activeBrush]
+              : (state.selectedRegionId ? state.regions.get(state.selectedRegionId)?.color : undefined)
+          }
         />
       )}
     </Card>

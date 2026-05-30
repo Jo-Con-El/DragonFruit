@@ -228,6 +228,9 @@ export interface SupportPainterState {
   pointPathWidthMm:       number;
   pointPathMode:          'line' | 'polygon';
   pointPathClosed:        boolean;
+
+  // ─── Phase III Active Brush Pipeline Override State ───
+  activeBrushPipeline:    CustomSupportOperation[] | null;
 }
 
 // ─── Store Action Payloads ───────────────────────────────────────────────────

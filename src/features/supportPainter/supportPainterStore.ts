@@ -12,6 +12,7 @@ import {
   type SupportPainterToast,
   type CustomBrushTemplate,
   type LocalMinimum,
+  type CustomSupportOperation,
   BRUSH_COLORS,
 } from './supportPainterTypes';
 import { type ClientAdjacencyMap, proposeRegionOnClient } from './useClientAdjacencyMap';
@@ -85,6 +86,9 @@ let pointPathWidthMm = 0.2;
 let pointPathMode: 'line' | 'polygon' = 'line';
 let pointPathClosed = false;
 
+// ─── Phase III Active Brush Pipeline Override State ───
+let activeBrushPipeline: CustomSupportOperation[] | null = null;
+
 const LOCAL_STORAGE_KEY = 'dragonfruit.support-painter.custom-brushes';
 
 function saveCustomBrushesToLocalStorage() {
@@ -148,6 +152,7 @@ let storeSnapshot: SupportPainterState = {
   pointPathWidthMm,
   pointPathMode,
   pointPathClosed,
+  activeBrushPipeline: null,
 };
 
 function notify() {
@@ -191,6 +196,7 @@ function updateSnapshot() {
     pointPathWidthMm,
     pointPathMode,
     pointPathClosed,
+    activeBrushPipeline: activeBrushPipeline ? [...activeBrushPipeline] : null,
   };
 }
 
@@ -279,6 +285,7 @@ export const supportPainterStore = {
   setActiveBrush(brush: BrushType) {
     if (activeBrush === brush) return;
     activeBrush = brush;
+    activeBrushPipeline = null; // Clear override on brush swap
     triangleColorMap = _recomputeTriangleColorMap();
     updateSnapshot();
     notify();
@@ -362,6 +369,26 @@ export const supportPainterStore = {
     const id = crypto.randomUUID?.() || Math.random().toString(36).substring(2);
     const color = activeCustomBrush ? activeCustomBrush.color : BRUSH_COLORS[payload.brushType];
 
+    let customBrushOverride = activeCustomBrush ? { ...activeCustomBrush } : undefined;
+    if (activeBrushPipeline) {
+      customBrushOverride = {
+        id: `temp-pipeline-${Date.now()}`,
+        name: `Temp ${activeCustomBrush ? activeCustomBrush.name : payload.brushType} Config`,
+        color,
+        baseBrush: activeCustomBrush ? activeCustomBrush.baseBrush : payload.brushType,
+        selection: activeCustomBrush ? { ...activeCustomBrush.selection } : {
+          normalConeAngleMinDeg: 0,
+          normalConeAngleMaxDeg: 90,
+          overhangSlopeMinDeg: 0,
+          overhangSlopeMaxDeg: 90,
+          curvatureMin: 0,
+          curvatureMax: 1,
+          dihedralAngleToleranceDeg: 0,
+        },
+        operations: [...activeBrushPipeline],
+      };
+    }
+
     const newRegion: ROIRegion = {
       id,
       brushType: payload.brushType,
@@ -370,7 +397,7 @@ export const supportPainterStore = {
       color,
       proposedOnly: false,
       createdAt: Date.now(),
-      customBrush: activeCustomBrush ? { ...activeCustomBrush } : undefined,
+      customBrush: customBrushOverride,
     };
 
     regions.set(id, newRegion);
@@ -744,6 +771,7 @@ export const supportPainterStore = {
   setActiveCustomBrushId(id: string | null) {
     if (activeCustomBrushId === id) return;
     activeCustomBrushId = id;
+    activeBrushPipeline = null; // Clear override on brush swap
     updateSnapshot();
     notify();
   },
@@ -1046,6 +1074,26 @@ export const supportPainterStore = {
     const id = crypto.randomUUID?.() || Math.random().toString(36).substring(2);
     const color = BRUSH_COLORS.PointPath;
 
+    let customBrushOverride = undefined;
+    if (activeBrushPipeline) {
+      customBrushOverride = {
+        id: `temp-pipeline-${Date.now()}`,
+        name: `Temp PointPath Config`,
+        color,
+        baseBrush: 'PointPath' as BrushType,
+        selection: {
+          normalConeAngleMinDeg: 0,
+          normalConeAngleMaxDeg: 90,
+          overhangSlopeMinDeg: 0,
+          overhangSlopeMaxDeg: 90,
+          curvatureMin: 0,
+          curvatureMax: 1,
+          dihedralAngleToleranceDeg: 0,
+        },
+        operations: [...activeBrushPipeline],
+      };
+    }
+
     const newRegion: ROIRegion = {
       id,
       brushType: 'PointPath',
@@ -1054,6 +1102,7 @@ export const supportPainterStore = {
       color,
       proposedOnly: false,
       createdAt: Date.now(),
+      customBrush: customBrushOverride,
     };
 
     regions.set(id, newRegion);
@@ -1068,6 +1117,46 @@ export const supportPainterStore = {
     updateSnapshot();
     notify();
     return id;
+  },
+
+  setActiveBrushPipeline(pipeline: CustomSupportOperation[] | null) {
+    activeBrushPipeline = pipeline;
+    updateSnapshot();
+    notify();
+  },
+
+  updateRegionCustomBrush(regionId: string, operations: CustomSupportOperation[]) {
+    const region = regions.get(regionId);
+    if (!region) return;
+
+    const baseTemplate = region.customBrush ?? {
+      id: `temp-pipeline-${Date.now()}`,
+      name: `Custom ROI Config`,
+      color: region.color,
+      baseBrush: region.brushType,
+      selection: {
+        normalConeAngleMinDeg: 0,
+        normalConeAngleMaxDeg: 90,
+        overhangSlopeMinDeg: 0,
+        overhangSlopeMaxDeg: 90,
+        curvatureMin: 0,
+        curvatureMax: 1,
+        dihedralAngleToleranceDeg: 0,
+      },
+      operations: [],
+    };
+
+    region.customBrush = {
+      ...baseTemplate,
+      operations: [...operations],
+    };
+
+    if (activeModelId) {
+      regionsByModel.set(activeModelId, regions);
+    }
+    
+    updateSnapshot();
+    notify();
   },
 };
 

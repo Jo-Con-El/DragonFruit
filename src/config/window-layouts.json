@@ -299,6 +299,25 @@
       }
     },
     {
+      "id": "support-painter",
+      "matchPanelIds": ["support-settings", "support-painter-tooltip"],
+      "order": ["visual-settings", "support-settings", "support-painter-tooltip"],
+      "anchors": {
+        "visual-settings": {
+          "to": "support-settings",
+          "side": "right-edge"
+        },
+        "support-settings": {
+          "to": "visual-settings",
+          "side": "left"
+        },
+        "support-painter-tooltip": {
+          "to": "support-settings",
+          "side": "below"
+        }
+      }
+    },
+    {
       "id": "export",
       "matchPanelIds": ["export-main", "export-slicing"],
       "order": ["export-main", "visual-settings", "export-slicing"],
