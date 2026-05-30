@@ -5,13 +5,6 @@ import * as THREE from 'three';
 import { useThree, useFrame } from '@react-three/fiber';
 import { AxisLabels } from '@/components/scene/AxisLabels';
 
-export function LoggingHelper({ mode }: { mode?: string }) {
-  React.useEffect(() => {
-    console.log('[SceneCanvas] Mode in Canvas:', mode);
-  }, [mode]);
-  return null;
-}
-
 export function EnableLocalClipping({ enabled = true }: { enabled?: boolean }) {
   const { gl } = useThree();
   useEffect(() => {
@@ -58,28 +51,39 @@ export function CameraClipPlaneStabilizer() {
   return null;
 }
 
-function FillLight({ intensity }: { intensity: number }) {
+function ViewHeadlight({ intensity }: { intensity: number }) {
   const { camera } = useThree();
-  const lightRef = React.useRef<THREE.PointLight | null>(null);
+  const lightRef = React.useRef<THREE.DirectionalLight | null>(null);
+  const targetRef = React.useRef<THREE.Object3D>(new THREE.Object3D());
+  const viewDirectionRef = React.useRef(new THREE.Vector3());
 
   useFrame(() => {
     if (!lightRef.current) return;
-    lightRef.current.position.copy(camera.position);
+
+    const light = lightRef.current;
+    const target = targetRef.current;
+    camera.getWorldDirection(viewDirectionRef.current);
+
+    light.position.copy(camera.position);
+    target.position.copy(camera.position).addScaledVector(viewDirectionRef.current, 100);
+    target.updateMatrixWorld(true);
+    light.target = target;
   });
 
-  // Camera-following fill/headlight so the region under inspection remains
-  // evenly readable while preserving the scene's global ambient + directional
-  // lighting stack.
+  // Camera-forward key light: unlike a point light at the camera, this keeps
+  // the illumination direction stable even when the inspected object is panned
+  // away from screen center.
   return (
-    <pointLight
-      ref={lightRef}
-      name="fill-light"
-      intensity={intensity}
-      decay={0}
-      distance={0}
-      color="#ffffff"
-      userData={{ followCaptureCamera: true }}
-    />
+    <>
+      <directionalLight
+        ref={lightRef}
+        name="view-headlight"
+        intensity={intensity}
+        color="#ffffff"
+        userData={{ followCaptureCamera: true, followCaptureCameraDirection: true }}
+      />
+      <primitive object={targetRef.current} />
+    </>
   );
 }
 
@@ -100,7 +104,7 @@ export function Lights({
       <directionalLight position={[0, 0, 12]} intensity={directionalIntensity} color="#ffffff" />
       <directionalLight position={[0, 0, -12]} intensity={directionalIntensity * 0.15} color="#90a7ff" />
       <hemisphereLight args={['#f6e8ff', '#3e415c', ambientIntensity * 0.6]} />
-      <FillLight intensity={clampedHeadlightIntensity} />
+      <ViewHeadlight intensity={clampedHeadlightIntensity} />
     </>
   );
 }

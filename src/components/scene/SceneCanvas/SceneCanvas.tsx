@@ -82,7 +82,7 @@ import { useMarqueeSelectionHandlers } from './useMarqueeSelectionHandlers';
 import { PickingEmptySpaceHoverResetter, SceneRenderBindings } from './SceneCanvasInteractionBits';
 
 import { PickingProviderWrapper, SelectionSync, useInteractionWarning } from './SceneSelectionAndPicking';
-import { CameraClipPlaneStabilizer, CameraProvider, EnableLocalClipping, Helpers, Lights, LoggingHelper, SceneMoodOverlay } from './SceneEnvironment';
+import { CameraClipPlaneStabilizer, CameraProvider, EnableLocalClipping, Helpers, Lights, SceneMoodOverlay } from './SceneEnvironment';
 import { StlMesh } from './StlMesh';
 import { setClipBounds } from './clipBoundsStore';
 import { useIsLinux } from '@/hooks/usePlatform';
@@ -4897,8 +4897,6 @@ export function SceneCanvas({
           onWebGlContextLost={handleWebGlContextLost}
           onWebGlContextRestored={handleWebGlContextRestored}
         />
-        <LoggingHelper mode={mode} />
-        
         <Lights
           ambientIntensity={ambientIntensity ?? 1.2}
           directionalIntensity={directionalIntensity ?? 0.3}
