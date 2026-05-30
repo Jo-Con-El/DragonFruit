@@ -146,7 +146,14 @@ export function proposeRegionOnClient(
   brushType: BrushType,
   matrixWorld: THREE.Matrix4,
   brushRadiusMm: number = 4.0,
-  customBrush?: CustomBrushTemplate
+  customBrush?: CustomBrushTemplate,
+  markerParams?: {
+    radiusMm: number;
+    shape: 'circle' | 'line' | 'rectangle' | 'square' | 'hexagon';
+    rotationDeg: number;
+    collisionMode: 'fence' | 'push' | 'merge';
+  },
+  occupiedFaces?: Set<number>
 ): number[] {
   if (seedFaceIndex < 0 || seedFaceIndex >= map.faceCount) return [];
 
@@ -162,19 +169,37 @@ export function proposeRegionOnClient(
     case 'MacroFace':
       return walkMacroFace(map, seedFaceIndex, localUp, customBrush);
     case 'Ridge':
-      return walkRidge(map, seedFaceIndex, localUp);
+      return walkRidge(map, seedFaceIndex, localUp, customBrush);
     case 'CylinderSides':
       return walkCylinderSides(map, seedFaceIndex, localUp);
     case 'CylinderMinima':
       return walkCylinderMinima(map, seedFaceIndex, localUp);
     case 'Point':
+      if (customBrush?.selection?.geodesicPathType === 'square') {
+        return walkManualSquare(map, seedFaceIndex, localUp, worldScale, brushRadiusMm);
+      }
       return walkManualCircle(map, seedFaceIndex, localUp, worldScale, brushRadiusMm);
     case 'ManualCircle':
       return walkManualCircle(map, seedFaceIndex, localUp, worldScale, brushRadiusMm);
     case 'ManualSquare':
       return walkManualSquare(map, seedFaceIndex, localUp, worldScale, brushRadiusMm);
     case 'Ring':
-      return walkRing(map, seedFaceIndex, localUp, matrixWorld);
+      return walkRing(map, seedFaceIndex, localUp, matrixWorld, customBrush);
+    case 'Marker':
+      if (markerParams) {
+        return walkMarkerShape(
+          map,
+          seedFaceIndex,
+          localUp,
+          worldScale,
+          markerParams.radiusMm,
+          markerParams.shape,
+          markerParams.rotationDeg,
+          markerParams.collisionMode,
+          occupiedFaces
+        );
+      }
+      return walkManualCircle(map, seedFaceIndex, localUp, worldScale, brushRadiusMm);
     default:
       // Legacy 1-ring fallback
       if (map.faceNormals[seedFaceIndex].dot(localUp) <= 0.2) {
@@ -214,12 +239,19 @@ function walkMacroFace(
   const degToRad = Math.PI / 180;
   const localDown = new THREE.Vector3().copy(localUp).negate();
 
+  const enableSlope = selection?.enableSlopeLimit ?? true;
+  const enableNormalCone = selection?.enableNormalConeLimit ?? true;
+  const enableDihedral = selection?.enableDihedralLimit ?? true;
+  const enableCurvature = selection?.enableCurvatureLimit ?? false;
+
   // Overhang slope check for seed
   if (selection) {
-    const minSlopeRad = selection.overhangSlopeMinDeg * degToRad;
-    const maxSlopeRad = selection.overhangSlopeMaxDeg * degToRad;
-    const seedSlope = seedNormal.angleTo(localDown);
-    if (seedSlope < minSlopeRad || seedSlope > maxSlopeRad) return [];
+    if (enableSlope) {
+      const minSlopeRad = selection.overhangSlopeMinDeg * degToRad;
+      const maxSlopeRad = selection.overhangSlopeMaxDeg * degToRad;
+      const seedSlope = seedNormal.angleTo(localDown);
+      if (seedSlope < minSlopeRad || seedSlope > maxSlopeRad) return [];
+    }
   } else {
     if (seedNormal.dot(localUp) > 0.2) return [];
   }
@@ -234,10 +266,14 @@ function walkMacroFace(
         
         let slopeOk = false;
         if (selection) {
-          const minSlopeRad = selection.overhangSlopeMinDeg * degToRad;
-          const maxSlopeRad = selection.overhangSlopeMaxDeg * degToRad;
-          const adjSlope = nAdj.angleTo(localDown);
-          slopeOk = adjSlope >= minSlopeRad && adjSlope <= maxSlopeRad;
+          if (enableSlope) {
+            const minSlopeRad = selection.overhangSlopeMinDeg * degToRad;
+            const maxSlopeRad = selection.overhangSlopeMaxDeg * degToRad;
+            const adjSlope = nAdj.angleTo(localDown);
+            slopeOk = adjSlope >= minSlopeRad && adjSlope <= maxSlopeRad;
+          } else {
+            slopeOk = true;
+          }
         } else {
           slopeOk = nAdj.dot(localUp) <= 0.2;
         }
@@ -249,19 +285,25 @@ function walkMacroFace(
 
           if (selection) {
             let curvatureOk = true;
-            if (selection.curvatureMin !== undefined || selection.curvatureMax !== undefined) {
+            if (enableCurvature) {
               const maxDihedral = getFaceCurvature(map, adj);
               const curvMin = selection.curvatureMin ?? 0;
               const curvMax = selection.curvatureMax ?? 1;
               curvatureOk = maxDihedral >= curvMin && maxDihedral <= curvMax;
             }
 
-            const minConeRad = selection.normalConeAngleMinDeg * degToRad;
-            const maxConeRad = selection.normalConeAngleMaxDeg * degToRad;
-            const dihedralTolRad = selection.dihedralAngleToleranceDeg * degToRad;
+            let normalConeOk = true;
+            if (enableNormalCone) {
+              const minConeRad = selection.normalConeAngleMinDeg * degToRad;
+              const maxConeRad = selection.normalConeAngleMaxDeg * degToRad;
+              normalConeOk = normalDeviation >= minConeRad && normalDeviation <= maxConeRad;
+            }
 
-            const normalConeOk = normalDeviation >= minConeRad && normalDeviation <= maxConeRad;
-            const dihedralOk = edgeDihedral <= dihedralTolRad;
+            let dihedralOk = true;
+            if (enableDihedral) {
+              const dihedralTolRad = selection.dihedralAngleToleranceDeg * degToRad;
+              dihedralOk = edgeDihedral <= dihedralTolRad;
+            }
 
             if (normalConeOk && dihedralOk && curvatureOk) {
               visited.add(adj);
@@ -280,25 +322,36 @@ function walkMacroFace(
   }
 
   if (selection) {
-    const minSlopeRad = selection.overhangSlopeMinDeg * degToRad;
-    const maxSlopeRad = selection.overhangSlopeMaxDeg * degToRad;
-    return Array.from(visited).filter((idx) => {
-      if (idx === seed) return true;
-      const slope = map.faceNormals[idx].angleTo(localDown);
-      return slope >= minSlopeRad && slope <= maxSlopeRad;
-    });
+    if (enableSlope) {
+      const minSlopeRad = selection.overhangSlopeMinDeg * degToRad;
+      const maxSlopeRad = selection.overhangSlopeMaxDeg * degToRad;
+      return Array.from(visited).filter((idx) => {
+        if (idx === seed) return true;
+        const slope = map.faceNormals[idx].angleTo(localDown);
+        return slope >= minSlopeRad && slope <= maxSlopeRad;
+      });
+    } else {
+      return Array.from(visited);
+    }
   } else {
     return Array.from(visited).filter((idx) => idx === seed || map.faceNormals[idx].dot(localUp) <= 0.2);
   }
 }
 
-function walkRidge(map: ClientAdjacencyMap, seed: number, localUp: THREE.Vector3): number[] {
+function walkRidge(
+  map: ClientAdjacencyMap,
+  seed: number,
+  localUp: THREE.Vector3,
+  customBrush?: CustomBrushTemplate
+): number[] {
   const visited = new Set<number>();
   const seedNormal = map.faceNormals[seed];
   if (seedNormal.dot(localUp) > 0.2) return [];
 
-  const HIGH_THRESHOLD = 8 * (Math.PI / 180);  // 8 degrees
-  const LOW_THRESHOLD = 3 * (Math.PI / 180);   // 3 degrees
+  const selection = customBrush?.selection;
+  const HIGH_THRESHOLD = (selection?.creaseSeedAngleDeg ?? 8) * (Math.PI / 180);
+  const LOW_THRESHOLD = (selection?.creasePropagateAngleDeg ?? 3) * (Math.PI / 180);
+  const alignLimit = selection?.ridgeAlignmentTolerance ?? 0.3;
 
   const getPeakCurvature = (f: number): { neighborIdx: number; angle: number } => {
     const norm = map.faceNormals[f];
@@ -356,7 +409,7 @@ function walkRidge(map: ClientAdjacencyMap, seed: number, localUp: THREE.Vector3
         }
       }
 
-      if (bestAdj === -1 || bestScore < 0.3) break;
+      if (bestAdj === -1 || bestScore < alignLimit) break;
       curr = bestAdj;
       visited.add(curr);
     }
@@ -413,11 +466,11 @@ function walkRidge(map: ClientAdjacencyMap, seed: number, localUp: THREE.Vector3
       }
     }
 
-    if (bestForwardAdj !== -1 && bestForwardScore >= 0.3) {
+    if (bestForwardAdj !== -1 && bestForwardScore >= alignLimit) {
       visited.add(bestForwardAdj);
       propagateChain(bestForwardAdj);
     }
-    if (bestBackwardAdj !== -1 && bestBackwardScore >= 0.3) {
+    if (bestBackwardAdj !== -1 && bestBackwardScore >= alignLimit) {
       visited.add(bestBackwardAdj);
       propagateChain(bestBackwardAdj);
     }
@@ -640,13 +693,21 @@ function walkManualSquare(
   return proposed.filter((idx) => idx === seed || map.faceNormals[idx].dot(localUp) <= 0.2);
 }
 
-function walkRing(map: ClientAdjacencyMap, seed: number, localUp: THREE.Vector3, matrixWorld: THREE.Matrix4): number[] {
+function walkRing(
+  map: ClientAdjacencyMap,
+  seed: number,
+  localUp: THREE.Vector3,
+  matrixWorld: THREE.Matrix4,
+  customBrush?: CustomBrushTemplate
+): number[] {
   const visited = new Set<number>();
   const queue: number[] = [];
 
   if (map.faceNormals[seed].dot(localUp) <= 0.2) {
     const seedCentroidWorld = map.faceCentroids[seed].clone().applyMatrix4(matrixWorld);
     const seedZ = seedCentroidWorld.z;
+
+    const zTol = customBrush?.selection?.zHeightEnvelopeToleranceMm ?? 1.0;
 
     queue.push(seed);
     visited.add(seed);
@@ -659,7 +720,7 @@ function walkRing(map: ClientAdjacencyMap, seed: number, localUp: THREE.Vector3,
         if (!visited.has(adj)) {
           if (map.faceNormals[adj].dot(localUp) <= 0.2) {
             const adjCentroidWorld = map.faceCentroids[adj].clone().applyMatrix4(matrixWorld);
-            if (adjCentroidWorld.z <= seedZ + 1.0 && adjCentroidWorld.z >= seedZ - 1.0) {
+            if (adjCentroidWorld.z <= seedZ + zTol && adjCentroidWorld.z >= seedZ - zTol) {
               visited.add(adj);
               queue.push(adj);
             }
@@ -670,4 +731,119 @@ function walkRing(map: ClientAdjacencyMap, seed: number, localUp: THREE.Vector3,
   }
 
   return Array.from(visited).filter((idx) => idx === seed || map.faceNormals[idx].dot(localUp) <= 0.2);
+}
+
+function walkMarkerShape(
+  map: ClientAdjacencyMap,
+  seed: number,
+  localUp: THREE.Vector3,
+  worldScale: number,
+  radiusMm: number,
+  shape: 'circle' | 'line' | 'rectangle' | 'square' | 'hexagon',
+  rotationDeg: number,
+  collisionMode: 'fence' | 'push' | 'merge',
+  occupiedFaces?: Set<number>
+): number[] {
+  const proposed: number[] = [];
+  const dists = new Map<number, number>();
+
+  const seedNormal = map.faceNormals[seed];
+  const seedCentroid = map.faceCentroids[seed];
+
+  if (seedNormal.dot(localUp) > 0.2) return [];
+
+  // Construct local orthonormal tangent coordinate axes on the seed plane
+  const tangentU = new THREE.Vector3(1, 0, 0).cross(seedNormal);
+  if (tangentU.lengthSq() < 1e-4) {
+    tangentU.copy(new THREE.Vector3(0, 1, 0).cross(seedNormal));
+  }
+  tangentU.normalize();
+  const tangentV = new THREE.Vector3().crossVectors(seedNormal, tangentU).normalize();
+
+  // Rotation angles
+  const theta = (rotationDeg * Math.PI) / 180;
+  const cosTheta = Math.cos(theta);
+  const sinTheta = Math.sin(theta);
+
+  interface DijkstraState {
+    cost: number;
+    face: number;
+  }
+
+  const queue: DijkstraState[] = [];
+
+  // Seed node check
+  if (collisionMode === 'fence' && occupiedFaces?.has(seed)) {
+    return [];
+  }
+
+  dists.set(seed, 0);
+  queue.push({ cost: 0, face: seed });
+
+  // Boundary check function
+  const checkInside = (ru: number, rv: number): boolean => {
+    switch (shape) {
+      case 'circle':
+        return ru * ru + rv * rv <= radiusMm * radiusMm;
+      case 'line':
+        return Math.abs(ru) <= radiusMm && Math.abs(rv) <= 0.25;
+      case 'rectangle':
+        return Math.abs(ru) <= radiusMm && Math.abs(rv) <= radiusMm * 0.5;
+      case 'square':
+        return Math.abs(ru) <= radiusMm && Math.abs(rv) <= radiusMm;
+      case 'hexagon':
+        return Math.abs(ru) <= radiusMm * 0.866 && (Math.abs(ru) * 0.5 + Math.abs(rv) * 0.866) <= radiusMm * 0.866;
+      default:
+        return false;
+    }
+  };
+
+  // We set Dijkstra cost limit to radiusMm * 1.5 to guarantee corners are reached
+  const maxDijkstraCost = radiusMm * 1.5;
+
+  while (queue.length > 0) {
+    queue.sort((a, b) => a.cost - b.cost);
+    const { cost, face } = queue.shift()!;
+
+    if (cost > maxDijkstraCost) continue;
+
+    // Project and check boundaries
+    const faceCentroid = map.faceCentroids[face];
+    const diff = new THREE.Vector3().subVectors(faceCentroid, seedCentroid).multiplyScalar(worldScale);
+    const du = diff.dot(tangentU);
+    const dv = diff.dot(tangentV);
+
+    // Rotate
+    const ru = du * cosTheta - dv * sinTheta;
+    const rv = du * sinTheta + dv * cosTheta;
+
+    if (checkInside(ru, rv)) {
+      if (!proposed.includes(face)) {
+        proposed.push(face);
+      }
+    }
+
+    const centroidCurr = map.faceCentroids[face];
+    const adjs = map.faceToFaces[face];
+
+    for (const adj of adjs) {
+      if (collisionMode === 'fence' && occupiedFaces?.has(adj)) {
+        continue; // Blocked by fence
+      }
+
+      if (map.faceNormals[adj].dot(localUp) <= 0.2) {
+        const centroidAdj = map.faceCentroids[adj];
+        const stepCost = centroidCurr.distanceTo(centroidAdj) * worldScale;
+        const nextCost = cost + stepCost;
+
+        const currentBest = dists.get(adj) ?? Infinity;
+        if (nextCost < currentBest && nextCost <= maxDijkstraCost) {
+          dists.set(adj, nextCost);
+          queue.push({ cost: nextCost, face: adj });
+        }
+      }
+    }
+  }
+
+  return proposed.filter((idx) => idx === seed || map.faceNormals[idx].dot(localUp) <= 0.2);
 }

@@ -18,7 +18,17 @@ export function useSupportPainterManager(
   geometry: THREE.BufferGeometry | null = null,
   meshResolver?: () => THREE.Mesh | null
 ) {
-  const { hoveredTriangleId, activeBrush, brushRadiusMm, activeCustomBrushId, customBrushes } = useSupportPainterState();
+  const {
+    hoveredTriangleId,
+    activeBrush,
+    brushRadiusMm,
+    activeCustomBrushId,
+    customBrushes,
+    markerRadiusMm,
+    markerTipShape,
+    markerTipRotationDeg,
+    markerCollisionMode,
+  } = useSupportPainterState();
   const [initializedModelId, setInitializedModelId] = useState<string | null>(null);
 
   // 1. Register history undo/redo handlers for painting
@@ -193,11 +203,56 @@ export function useSupportPainterManager(
       console.log(`[SupportPainterManager] Running proposal on seed: ${hoveredTriangleId}, active brush: ${activeBrush}, mesh resolved: ${!!mesh}`);
       
       const activeCustomBrush = activeCustomBrushId ? customBrushes.get(activeCustomBrushId) : undefined;
+      const activeBrushType = activeCustomBrush ? (activeCustomBrush.baseBrush || 'MacroFace') : activeBrush;
+
+      const snap = supportPainterStore.getSnapshot();
+      const isCustomMarker = activeCustomBrush && activeCustomBrush.baseBrush === 'Marker';
+
+      const radius = isCustomMarker
+        ? (activeCustomBrush.selection.markerRadiusMm ?? 1.5)
+        : snap.markerRadiusMm;
+
+      const shape = isCustomMarker
+        ? (activeCustomBrush.selection.markerTipShape ?? 'circle')
+        : snap.markerTipShape;
+
+      const rotation = isCustomMarker
+        ? (activeCustomBrush.selection.markerTipRotationDeg ?? 0)
+        : snap.markerTipRotationDeg;
+
+      const collisionMode = isCustomMarker
+        ? (activeCustomBrush.selection.markerCollisionMode ?? 'fence')
+        : snap.markerCollisionMode;
+
+      const markerParams = {
+        radiusMm: radius,
+        shape,
+        rotationDeg: rotation,
+        collisionMode,
+      };
+
+      const occupiedFaces = new Set<number>();
+      for (const [id, reg] of snap.regions.entries()) {
+        if (id === snap.selectedRegionId) continue;
+        for (const tid of reg.triangleIds) {
+          occupiedFaces.add(tid);
+        }
+      }
 
       // Execute the brush walk synchronously in JavaScript using the live transform
-      const isCircleOrSquare = activeBrush === 'Point' || activeBrush === 'ManualCircle' || activeBrush === 'ManualSquare';
+      const isCircleOrSquare = activeBrushType === 'Point' || activeBrushType === 'ManualCircle' || activeBrushType === 'ManualSquare';
       const effectiveRadius = isCircleOrSquare ? brushRadiusMm * 0.5 : brushRadiusMm;
-      const proposedIds = proposeRegionOnClient(map, hoveredTriangleId, activeBrush, matrixWorld, effectiveRadius, activeCustomBrush);
+      
+      const proposedIds = proposeRegionOnClient(
+        map,
+        hoveredTriangleId,
+        activeBrushType,
+        matrixWorld,
+        activeBrushType === 'Marker' ? radius : effectiveRadius,
+        activeCustomBrush,
+        markerParams,
+        occupiedFaces
+      );
       
       console.log(`[SupportPainterManager] Smart brush search returned ${proposedIds.length} triangles.`);
       supportPainterStore.setProposedTriangleIds(proposedIds);
@@ -214,5 +269,9 @@ export function useSupportPainterManager(
     brushRadiusMm,
     activeCustomBrushId,
     customBrushParamsJson,
+    markerRadiusMm,
+    markerTipShape,
+    markerTipRotationDeg,
+    markerCollisionMode,
   ]);
 }

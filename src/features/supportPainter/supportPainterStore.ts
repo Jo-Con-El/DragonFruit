@@ -71,6 +71,13 @@ let activeCustomBrushId: string | null = null;
 let brushRadiusMm = 4.0;
 let scannedMinima: LocalMinimum[] = [];
 
+// ─── Marker Brush State ───
+let markerRadiusMm = 1.5;
+let markerTipShape: 'circle' | 'line' | 'rectangle' | 'square' | 'hexagon' = 'circle';
+let markerTipRotationDeg = 0;
+let markerEraserMode = false;
+let markerCollisionMode: 'fence' | 'push' | 'merge' = 'fence';
+
 const LOCAL_STORAGE_KEY = 'dragonfruit.support-painter.custom-brushes';
 
 function saveCustomBrushesToLocalStorage() {
@@ -124,6 +131,11 @@ let storeSnapshot: SupportPainterState = {
   customBrushes: new Map(customBrushes),
   activeCustomBrushId,
   brushRadiusMm,
+  markerRadiusMm,
+  markerTipShape,
+  markerTipRotationDeg,
+  markerEraserMode,
+  markerCollisionMode,
 };
 
 function notify() {
@@ -157,6 +169,11 @@ function updateSnapshot() {
     customBrushes: new Map(customBrushes),
     activeCustomBrushId,
     brushRadiusMm,
+    markerRadiusMm,
+    markerTipShape,
+    markerTipRotationDeg,
+    markerEraserMode,
+    markerCollisionMode,
   };
 }
 
@@ -289,30 +306,189 @@ export const supportPainterStore = {
   },
 
   commitRegion(payload: CommitRegionPayload): string {
-    const id = crypto.randomUUID?.() || Math.random().toString(36).substring(2);
+    const activeCustomBrush = activeCustomBrushId ? customBrushes.get(activeCustomBrushId) : undefined;
+    const isMarker = payload.brushType === 'Marker' || (activeCustomBrush && activeCustomBrush.baseBrush === 'Marker');
+    const eraserMode = activeCustomBrush ? activeCustomBrush.selection.markerEraserMode : markerEraserMode;
+    const collisionMode = activeCustomBrush ? (activeCustomBrush.selection.markerCollisionMode ?? 'fence') : markerCollisionMode;
+
     const triangleIds = proposedTriangleIds.size > 0
       ? new Set(proposedTriangleIds)
       : new Set([payload.seedTriangleId]);
 
-    const activeCustomBrush = activeCustomBrushId ? customBrushes.get(activeCustomBrushId) : undefined;
+    // 1. Selective Eraser Mode handling
+    if (isMarker && eraserMode) {
+      this.subtractTrianglesFromRegions(triangleIds);
+      proposedTriangleIds.clear();
+      return '';
+    }
+
+    const id = crypto.randomUUID?.() || Math.random().toString(36).substring(2);
     const color = activeCustomBrush ? activeCustomBrush.color : BRUSH_COLORS[payload.brushType];
 
     const newRegion: ROIRegion = {
       id,
       brushType: payload.brushType,
       seedTriangleId: payload.seedTriangleId,
-      triangleIds,
+      triangleIds: new Set(triangleIds),
       color,
       proposedOnly: false,
       createdAt: Date.now(),
       customBrush: activeCustomBrush ? { ...activeCustomBrush } : undefined,
     };
+
     regions.set(id, newRegion);
+    selectedRegionId = id; // Auto-select the newly created region
+
+    // 2. Additive collision modes handling
+    if (isMarker) {
+      if (collisionMode === 'push') {
+        // Erode other ROIs
+        for (const [otherId, otherReg] of regions.entries()) {
+          if (otherId === id) continue;
+          let intersected = false;
+          const nextOtherSet = new Set<number>();
+          for (const tid of otherReg.triangleIds) {
+            if (triangleIds.has(tid)) {
+              intersected = true;
+            } else {
+              nextOtherSet.add(tid);
+            }
+          }
+          if (intersected) {
+            if (nextOtherSet.size === 0) {
+              regions.delete(otherId);
+            } else {
+              otherReg.triangleIds = nextOtherSet;
+              this.pruneOrphans(otherId);
+            }
+          }
+        }
+      } else if (collisionMode === 'merge') {
+        // Merge with touched ROIs
+        const touchedIds: string[] = [];
+        for (const [otherId, otherReg] of regions.entries()) {
+          if (otherId === id) continue;
+          for (const tid of otherReg.triangleIds) {
+            if (triangleIds.has(tid)) {
+              touchedIds.push(otherId);
+              break;
+            }
+          }
+        }
+        if (touchedIds.length > 0) {
+          const nextSet = new Set(newRegion.triangleIds);
+          for (const otherId of touchedIds) {
+            const otherReg = regions.get(otherId)!;
+            for (const tid of otherReg.triangleIds) {
+              nextSet.add(tid);
+            }
+            regions.delete(otherId);
+          }
+          newRegion.triangleIds = nextSet;
+        }
+      }
+    }
+
     proposedTriangleIds.clear();
     triangleColorMap = _recomputeTriangleColorMap();
     updateSnapshot();
     notify();
     return id;
+  },
+
+  appendTrianglesToRegion(regionId: string, triangleIds: Set<number> | number[]) {
+    const region = regions.get(regionId);
+    if (!region) return;
+
+    const nextSet = new Set(region.triangleIds);
+    for (const tid of triangleIds) {
+      nextSet.add(tid);
+    }
+    region.triangleIds = nextSet;
+
+    // Handle Erode / Push / Merge collisions for the appended stroke triangles
+    const isMarker = region.brushType === 'Marker' || (region.customBrush && region.customBrush.baseBrush === 'Marker');
+    const collisionMode = region.customBrush
+      ? (region.customBrush.selection.markerCollisionMode ?? 'fence')
+      : markerCollisionMode;
+
+    if (isMarker) {
+      if (collisionMode === 'push') {
+        // Erode other ROIs
+        for (const [otherId, otherReg] of regions.entries()) {
+          if (otherId === regionId) continue;
+          let intersected = false;
+          const nextOtherSet = new Set<number>();
+          for (const tid of otherReg.triangleIds) {
+            if (nextSet.has(tid)) {
+              intersected = true;
+            } else {
+              nextOtherSet.add(tid);
+            }
+          }
+          if (intersected) {
+            if (nextOtherSet.size === 0) {
+              regions.delete(otherId);
+            } else {
+              otherReg.triangleIds = nextOtherSet;
+              this.pruneOrphans(otherId);
+            }
+          }
+        }
+      } else if (collisionMode === 'merge') {
+        // Merge with touched ROIs
+        const touchedIds: string[] = [];
+        for (const [otherId, otherReg] of regions.entries()) {
+          if (otherId === regionId) continue;
+          for (const tid of otherReg.triangleIds) {
+            if (nextSet.has(tid)) {
+              touchedIds.push(otherId);
+              break;
+            }
+          }
+        }
+        if (touchedIds.length > 0) {
+          for (const otherId of touchedIds) {
+            const otherReg = regions.get(otherId)!;
+            for (const tid of otherReg.triangleIds) {
+              nextSet.add(tid);
+            }
+            regions.delete(otherId);
+          }
+          region.triangleIds = nextSet;
+        }
+      }
+    }
+
+    triangleColorMap = _recomputeTriangleColorMap();
+    updateSnapshot();
+    notify();
+  },
+
+  subtractTrianglesFromRegions(triangleIds: Set<number> | number[]) {
+    const idsSet = new Set(triangleIds);
+    for (const [id, region] of regions.entries()) {
+      const nextSet = new Set<number>();
+      let changed = false;
+      for (const tid of region.triangleIds) {
+        if (idsSet.has(tid)) {
+          changed = true;
+        } else {
+          nextSet.add(tid);
+        }
+      }
+      if (changed) {
+        if (nextSet.size === 0) {
+          regions.delete(id);
+        } else {
+          region.triangleIds = nextSet;
+          this.pruneOrphans(id);
+        }
+      }
+    }
+    triangleColorMap = _recomputeTriangleColorMap();
+    updateSnapshot();
+    notify();
   },
 
   removeRegion(regionId: string) {
@@ -547,6 +723,50 @@ export const supportPainterStore = {
     const clamped = Math.max(0.5, Math.min(50, brushRadiusMm + delta));
     if (brushRadiusMm === clamped) return;
     brushRadiusMm = clamped;
+    updateSnapshot();
+    notify();
+  },
+
+  setMarkerRadiusMm(radius: number) {
+    const clamped = Math.max(0.1, Math.min(50, radius));
+    if (markerRadiusMm === clamped) return;
+    markerRadiusMm = clamped;
+    updateSnapshot();
+    notify();
+  },
+
+  adjustMarkerRadiusMm(delta: number) {
+    const clamped = Math.max(0.1, Math.min(50, markerRadiusMm + delta));
+    if (markerRadiusMm === clamped) return;
+    markerRadiusMm = clamped;
+    updateSnapshot();
+    notify();
+  },
+
+  setMarkerTipShape(shape: 'circle' | 'line' | 'rectangle' | 'square' | 'hexagon') {
+    if (markerTipShape === shape) return;
+    markerTipShape = shape;
+    updateSnapshot();
+    notify();
+  },
+
+  setMarkerTipRotationDeg(deg: number) {
+    if (markerTipRotationDeg === deg) return;
+    markerTipRotationDeg = deg;
+    updateSnapshot();
+    notify();
+  },
+
+  setMarkerEraserMode(mode: boolean) {
+    if (markerEraserMode === mode) return;
+    markerEraserMode = mode;
+    updateSnapshot();
+    notify();
+  },
+
+  setMarkerCollisionMode(mode: 'fence' | 'push' | 'merge') {
+    if (markerCollisionMode === mode) return;
+    markerCollisionMode = mode;
     updateSnapshot();
     notify();
   },

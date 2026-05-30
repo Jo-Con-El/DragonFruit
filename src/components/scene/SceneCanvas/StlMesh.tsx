@@ -7,6 +7,7 @@ import { usePicking } from '@/components/picking';
 import { MeshShaderMaterial, type MeshShaderType } from '@/features/shaders/mesh';
 import { OpaqueWireOverlayMaterial } from '@/features/shaders/mesh/opaqueWireMesh';
 import { supportPainterStore, useSupportPainterState } from '@/features/supportPainter/supportPainterStore';
+import { proposeRegionOnClient } from '@/features/supportPainter/useClientAdjacencyMap';
 import { PAINT_ROI_ADD, PAINT_ROI_REMOVE } from '@/features/supportPainter/supportPainterHistoryTypes';
 import { pushHistory } from '@/history/historyStore';
 import { useRoiHighlightMaterial } from '@/features/supportPainter/shaders/roiHighlight';
@@ -1030,8 +1031,77 @@ if (uDitherAmount > 0.0) {
                 supportPainterStore.setHoveredTriangle(null);
               } else if (isActiveModel) {
                 const faceIndex = e.faceIndex;
-                if (faceIndex !== undefined) {
+                if (typeof faceIndex === 'number') {
                   supportPainterStore.setHoveredTriangle(faceIndex);
+
+                  // Continuous drag painting/erasing when click-and-dragging
+                  const snap = supportPainterStore.getSnapshot();
+                  if ((e.buttons & 1) === 1 && (snap.interactionPhase === 'Expand' || snap.interactionPhase === 'Subtract')) {
+                    const map = supportPainterStore.getClientAdjacencyMap();
+                    if (map) {
+                      const mesh = e.object as THREE.Mesh;
+                      const matrixWorld = mesh.matrixWorld || new THREE.Matrix4();
+
+                      const activeCustomBrush = snap.activeCustomBrushId ? snap.customBrushes.get(snap.activeCustomBrushId) : undefined;
+                      const activeBrushType = activeCustomBrush ? (activeCustomBrush.baseBrush || 'MacroFace') : snap.activeBrush;
+                      const isCustomMarker = activeCustomBrush && activeCustomBrush.baseBrush === 'Marker';
+
+                      const radius = isCustomMarker
+                        ? (activeCustomBrush.selection.markerRadiusMm ?? 1.5)
+                        : snap.markerRadiusMm;
+                      const shape = isCustomMarker
+                        ? (activeCustomBrush.selection.markerTipShape ?? 'circle')
+                        : snap.markerTipShape;
+                      const rotation = isCustomMarker
+                        ? (activeCustomBrush.selection.markerTipRotationDeg ?? 0)
+                        : snap.markerTipRotationDeg;
+                      const collisionMode = isCustomMarker
+                        ? (activeCustomBrush.selection.markerCollisionMode ?? 'fence')
+                        : snap.markerCollisionMode;
+                      const eraserMode = activeCustomBrush
+                        ? activeCustomBrush.selection.markerEraserMode
+                        : snap.markerEraserMode;
+
+                      const markerParams = {
+                        radiusMm: radius,
+                        shape,
+                        rotationDeg: rotation,
+                        collisionMode,
+                      };
+
+                      const occupiedFaces = new Set<number>();
+                      for (const [id, reg] of snap.regions.entries()) {
+                        if (id === snap.selectedRegionId) continue;
+                        for (const tid of reg.triangleIds) {
+                          occupiedFaces.add(tid);
+                        }
+                      }
+
+                      const isCircleOrSquare = activeBrushType === 'Point' || activeBrushType === 'ManualCircle' || activeBrushType === 'ManualSquare';
+                      const effectiveRadius = isCircleOrSquare ? snap.brushRadiusMm * 0.5 : snap.brushRadiusMm;
+
+                      const proposedIds = proposeRegionOnClient(
+                        map,
+                        faceIndex,
+                        activeBrushType,
+                        matrixWorld,
+                        activeBrushType === 'Marker' ? radius : effectiveRadius,
+                        activeCustomBrush,
+                        markerParams,
+                        occupiedFaces
+                      );
+
+                      if (proposedIds.length > 0) {
+                        const isMarker = activeBrushType === 'Marker';
+                        const isSubtract = snap.modifierKeys.alt || (isMarker && eraserMode);
+                        if (isSubtract) {
+                          supportPainterStore.subtractTrianglesFromRegions(proposedIds);
+                        } else if (snap.selectedRegionId) {
+                          supportPainterStore.appendTrianglesToRegion(snap.selectedRegionId, proposedIds);
+                        }
+                      }
+                    }
+                  }
                 }
               } else {
                 supportPainterStore.setHoveredTriangle(null);

@@ -322,4 +322,329 @@ describe('Support Painter Phase 4 - Manual Geodesic Brushes & Boolean Operations
       assert.ok(result.includes(2), 'Should traverse to soft face 2');
     });
   });
+
+  describe('Custom Parameter Overrides', () => {
+    it('should respect custom crease seed and propagation angle parameters in Ridge walks', () => {
+      // 3 faces representing a soft/faceted crease line
+      // Face 0: flat horizontal base normal pointing down
+      // Face 1: tilted slightly by 10 degrees (dihedral = 10°)
+      // Face 2: tilted further by 5 degrees (dihedral = 5°)
+      const creaseAdjacencyMap: ClientAdjacencyMap = {
+        faceCount: 3,
+        faceNormals: [
+          new THREE.Vector3(0, 0, -1),
+          new THREE.Vector3(0, Math.sin(10 * Math.PI / 180), -Math.cos(10 * Math.PI / 180)),
+          new THREE.Vector3(0, Math.sin(15 * Math.PI / 180), -Math.cos(15 * Math.PI / 180)),
+        ],
+        faceCentroids: [
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(1, 0, 0),
+          new THREE.Vector3(2, 0, 0),
+        ],
+        faceZBounds: Array.from({ length: 3 }, () => ({ min: -0.1, max: 0.1 })),
+        faceToFaces: [
+          [1],    // 0
+          [0, 2], // 1
+          [1],    // 2
+        ],
+      };
+
+      // 1. With creaseSeedAngleDeg = 12 (10° < 12°), should NOT seed!
+      const mockCustomBrushNoSeed = {
+        id: 'c1',
+        name: 'No Seed',
+        color: '#ff0000',
+        selection: {
+          normalConeAngleMinDeg: 0,
+          normalConeAngleMaxDeg: 90,
+          overhangSlopeMinDeg: 0,
+          overhangSlopeMaxDeg: 90,
+          curvatureMin: 0,
+          curvatureMax: 1,
+          dihedralAngleToleranceDeg: 45,
+          creaseSeedAngleDeg: 12,
+          creasePropagateAngleDeg: 3,
+          ridgeAlignmentTolerance: 0.3,
+        },
+        operations: [],
+      };
+
+      const resNoSeed = proposeRegionOnClient(
+        creaseAdjacencyMap,
+        0,
+        'Ridge',
+        identityMatrix,
+        4.0,
+        mockCustomBrushNoSeed
+      );
+      assert.strictEqual(resNoSeed.length, 0, 'Should fail to seed because 10 deg crease < 12 deg seed threshold');
+
+      // 2. With creaseSeedAngleDeg = 8 and creasePropagateAngleDeg = 8 (5° < 8°), should NOT propagate to face 2!
+      const mockCustomBrushNoProp = {
+        id: 'c2',
+        name: 'No Propagate',
+        color: '#ff0000',
+        selection: {
+          normalConeAngleMinDeg: 0,
+          normalConeAngleMaxDeg: 90,
+          overhangSlopeMinDeg: 0,
+          overhangSlopeMaxDeg: 90,
+          curvatureMin: 0,
+          curvatureMax: 1,
+          dihedralAngleToleranceDeg: 45,
+          creaseSeedAngleDeg: 8,
+          creasePropagateAngleDeg: 8,
+          ridgeAlignmentTolerance: 0.3,
+        },
+        operations: [],
+      };
+
+      const resNoProp = proposeRegionOnClient(
+        creaseAdjacencyMap,
+        0,
+        'Ridge',
+        identityMatrix,
+        4.0,
+        mockCustomBrushNoProp
+      );
+      assert.ok(resNoProp.includes(0));
+      assert.ok(resNoProp.includes(1));
+      assert.ok(!resNoProp.includes(2), 'Should fail to propagate to face 2 because 5 deg crease < 8 deg propagate threshold');
+    });
+
+    it('should respect custom zHeightEnvelopeToleranceMm in Ring walks', () => {
+      // 3 faces at different heights
+      // Face 0: (0,0,0)
+      // Face 1: (1,0,0.5)
+      // Face 2: (2,0,1.2)
+      const ringAdjacencyMap: ClientAdjacencyMap = {
+        faceCount: 3,
+        faceNormals: Array.from({ length: 3 }, () => new THREE.Vector3(0, 0, -1)),
+        faceCentroids: [
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(1, 0, 0.5),
+          new THREE.Vector3(2, 0, 1.2),
+        ],
+        faceZBounds: [
+          { min: -0.1, max: 0.1 },
+          { min: 0.4, max: 0.6 },
+          { min: 1.1, max: 1.3 },
+        ],
+        faceToFaces: [
+          [1],    // 0
+          [0, 2], // 1
+          [1],    // 2
+        ],
+      };
+
+      // Case 1: default ring (uses ±1.0mm envelope relative to seed at Z=0)
+      // Seed Z=0. Face 1 has Z=0.5 (<= 1.0, so valid). Face 2 has Z=1.2 (> 1.0, so invalid).
+      // So default should return [0, 1]
+      const resDefault = proposeRegionOnClient(
+        ringAdjacencyMap,
+        0,
+        'Ring',
+        identityMatrix
+      );
+      assert.strictEqual(resDefault.length, 2);
+      assert.ok(resDefault.includes(0));
+      assert.ok(resDefault.includes(1));
+      assert.ok(!resDefault.includes(2));
+
+      // Case 2: Custom brush with zHeightEnvelopeToleranceMm = 0.3
+      // Seed Z=0. Face 1 has Z=0.5 (> 0.3, so invalid).
+      // So custom should return only [0]
+      const mockCustomRingBrush = {
+        id: 'c3',
+        name: 'Narrow Ring',
+        color: '#00ff00',
+        selection: {
+          normalConeAngleMinDeg: 0,
+          normalConeAngleMaxDeg: 90,
+          overhangSlopeMinDeg: 0,
+          overhangSlopeMaxDeg: 90,
+          curvatureMin: 0,
+          curvatureMax: 1,
+          dihedralAngleToleranceDeg: 45,
+          zHeightEnvelopeToleranceMm: 0.3,
+        },
+        operations: [],
+      };
+
+      const resCustom = proposeRegionOnClient(
+        ringAdjacencyMap,
+        0,
+        'Ring',
+        identityMatrix,
+        4.0,
+        mockCustomRingBrush
+      );
+      assert.strictEqual(resCustom.length, 1);
+      assert.ok(resCustom.includes(0));
+      assert.ok(!resCustom.includes(1), 'Face 1 (Z=0.5) should be filtered out with ±0.3 tolerance');
+    });
+  });
+
+  describe('Marker Brush Shapes, Fence Blocking, and Collision Strategies', () => {
+    it('should correctly project rotated Line footprint shapes', () => {
+      // Line tip: R = 1.5, rotation = 90 deg.
+      // Unrotated line is aligned along U-axis (Y-axis).
+      // At 90 deg rotation, it aligns along V-axis (X-axis), extending to faces 3, 5,
+      // and is narrow along U-axis, excluding faces 1, 7.
+      const result = proposeRegionOnClient(
+        mockAdjacencyMap,
+        4, // Seed 4
+        'Marker',
+        identityMatrix,
+        1.5,
+        undefined,
+        {
+          radiusMm: 1.5,
+          shape: 'line',
+          rotationDeg: 90,
+          collisionMode: 'fence',
+        }
+      );
+
+      assert.ok(result.includes(4));
+      assert.ok(result.includes(3));
+      assert.ok(result.includes(5));
+      assert.ok(!result.includes(1), 'Face 1 should be excluded by Line width limit');
+      assert.ok(!result.includes(7), 'Face 7 should be excluded by Line width limit');
+    });
+
+    it('should correctly project Rectangle 2:1 footprint shapes', () => {
+      // Rectangle tip: R = 1.5, rotation = 0.
+      // Unrotated rectangle has length along U-axis (Y-axis), so it should include faces 1, 7.
+      // Height limit (V-axis/X-axis) is 0.75, so X-axis faces (3, 5) at distance 1.0 are excluded.
+      const result = proposeRegionOnClient(
+        mockAdjacencyMap,
+        4,
+        'Marker',
+        identityMatrix,
+        1.5,
+        undefined,
+        {
+          radiusMm: 1.5,
+          shape: 'rectangle',
+          rotationDeg: 0,
+          collisionMode: 'fence',
+        }
+      );
+
+      assert.ok(result.includes(4));
+      assert.ok(result.includes(1));
+      assert.ok(result.includes(7));
+      assert.ok(!result.includes(3), 'Face 3 should be excluded by rectangle 2:1 height limit');
+      assert.ok(!result.includes(5), 'Face 5 should be excluded by rectangle 2:1 height limit');
+    });
+
+    it('should block Dijkstra propagation at occupied boundaries in Fence Mode', () => {
+      // In Fence mode, if face 1 is occupied, the walk should not propagate to or past face 1.
+      const occupied = new Set([1]);
+      const result = proposeRegionOnClient(
+        mockAdjacencyMap,
+        4,
+        'Marker',
+        identityMatrix,
+        1.5,
+        undefined,
+        {
+          radiusMm: 1.5,
+          shape: 'circle',
+          rotationDeg: 0,
+          collisionMode: 'fence',
+        },
+        occupied
+      );
+
+      assert.ok(result.includes(4));
+      assert.ok(result.includes(3));
+      assert.ok(result.includes(5));
+      assert.ok(result.includes(7));
+      assert.ok(!result.includes(1), 'Face 1 should be blocked because it is occupied in Fence mode');
+    });
+
+    it('should erode occupied triangles from other ROIs in Push/Erode Mode', () => {
+      // Setup region A with faces [1, 2]
+      const roiA: ROIRegion = {
+        id: 'roi-a',
+        brushType: 'Marker',
+        seedTriangleId: 1,
+        triangleIds: new Set([1, 2]),
+        color: '#4A90E2',
+        proposedOnly: false,
+        createdAt: Date.now(),
+      };
+
+      supportPainterStore.clearAll();
+      supportPainterStore.setClientAdjacencyMap(mockAdjacencyMap);
+      const regionsMap = new Map<string, ROIRegion>();
+      regionsMap.set(roiA.id, roiA);
+      supportPainterStore.restoreRegions(regionsMap);
+
+      // Now propose a Marker stroke over faces [0, 1] and commit it as region B in 'push' collision mode
+      supportPainterStore.setProposedTriangleIds([0, 1]);
+      supportPainterStore.setMarkerCollisionMode('push');
+      
+      const roiBId = supportPainterStore.commitRegion({
+        seedTriangleId: 0,
+        brushType: 'Marker',
+      });
+
+      const snap = supportPainterStore.getSnapshot();
+      // Region A should be eroded, losing face 1, so it only has face 2
+      const updatedRoiA = snap.regions.get('roi-a')!;
+      assert.ok(updatedRoiA);
+      assert.strictEqual(updatedRoiA.triangleIds.size, 1);
+      assert.ok(updatedRoiA.triangleIds.has(2));
+      assert.ok(!updatedRoiA.triangleIds.has(1), 'Face 1 should be eroded from region A');
+
+      // Region B should successfully hold faces [0, 1]
+      const roiB = snap.regions.get(roiBId)!;
+      assert.ok(roiB);
+      assert.strictEqual(roiB.triangleIds.size, 2);
+      assert.ok(roiB.triangleIds.has(0));
+      assert.ok(roiB.triangleIds.has(1));
+    });
+
+    it('should merge touched ROIs and the stroke into a single ROI in Merge Mode', () => {
+      // Setup region A with faces [1]
+      const roiA: ROIRegion = {
+        id: 'roi-a',
+        brushType: 'Marker',
+        seedTriangleId: 1,
+        triangleIds: new Set([1]),
+        color: '#4A90E2',
+        proposedOnly: false,
+        createdAt: Date.now(),
+      };
+
+      supportPainterStore.clearAll();
+      supportPainterStore.setClientAdjacencyMap(mockAdjacencyMap);
+      const regionsMap = new Map<string, ROIRegion>();
+      regionsMap.set(roiA.id, roiA);
+      supportPainterStore.restoreRegions(regionsMap);
+
+      // Propose a Marker stroke over face [4] (which touches face 1 via adjacency)
+      // And touches/intersects face 1 (let's cover faces [1, 4])
+      supportPainterStore.setProposedTriangleIds([1, 4]);
+      supportPainterStore.setMarkerCollisionMode('merge');
+
+      const roiBId = supportPainterStore.commitRegion({
+        seedTriangleId: 4,
+        brushType: 'Marker',
+      });
+
+      const snap = supportPainterStore.getSnapshot();
+      // Region A should be merged (deleted), and the new region B should contain the union [1, 4]
+      assert.ok(!snap.regions.has('roi-a'), 'Region A should be deleted because it was merged');
+      
+      const roiB = snap.regions.get(roiBId)!;
+      assert.ok(roiB);
+      assert.strictEqual(roiB.triangleIds.size, 2);
+      assert.ok(roiB.triangleIds.has(1));
+      assert.ok(roiB.triangleIds.has(4));
+    });
+  });
 });

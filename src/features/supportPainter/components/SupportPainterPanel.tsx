@@ -79,6 +79,11 @@ const BRUSH_DETAILS: Record<
     desc: 'Manual square geodesic brush',
     icon: Square,
   },
+  Marker: {
+    label: 'Marker Brush',
+    desc: 'Brush with rotated shapes & collision strategies',
+    icon: CircleDot,
+  },
 };
 
 function getSupportTips(supportState: any, activeModelId: string): THREE.Vector3[] {
@@ -423,6 +428,9 @@ export function SupportPainterPanel({
   };
 
   const activeDetails = BRUSH_DETAILS[state.activeBrush] || BRUSH_DETAILS.MacroFace;
+  const activeCustomBrush = state.activeCustomBrushId ? state.customBrushes.get(state.activeCustomBrushId) : undefined;
+  const isCustomMarker = !!(activeCustomBrush && activeCustomBrush.baseBrush === 'Marker');
+  const isMarkerActive = state.activeBrush === 'Marker' || isCustomMarker;
 
   return (
     <Card>
@@ -599,6 +607,233 @@ export function SupportPainterPanel({
               )}
             </Button>
           </div>
+
+          {/* Geodesic Radius Slider (for Point and Manual Geodesic brushes) */}
+          {(state.activeBrush === 'Point' || state.activeBrush === 'ManualCircle' || state.activeBrush === 'ManualSquare') && (
+            <div
+              className="flex flex-col gap-1.5 p-2.5 rounded-lg border text-xs"
+              style={{
+                background: 'var(--surface-2)',
+                borderColor: 'var(--border-subtle)',
+              }}
+            >
+              <div className="flex justify-between">
+                <span className="font-semibold" style={{ color: 'var(--text-strong)' }}>
+                  Brush Radius
+                </span>
+                <span className="font-bold" style={{ color: 'var(--accent)' }}>
+                  {state.brushRadiusMm.toFixed(1)} mm
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="50.0"
+                step="0.5"
+                value={state.brushRadiusMm}
+                onChange={(e) => supportPainterStore.setBrushRadiusMm(parseFloat(e.target.value))}
+                className="w-full accent-accent cursor-pointer"
+              />
+            </div>
+          )}
+
+          {/* Marker Brush Controls */}
+          {isMarkerActive && (
+            <div
+              className="flex flex-col gap-3 p-2.5 rounded-lg border text-xs text-left"
+              style={{
+                background: 'var(--surface-2)',
+                borderColor: 'var(--border-subtle)',
+              }}
+            >
+              <div className="font-bold uppercase tracking-wider text-[10px] text-gray-400 border-b pb-1">
+                Marker Brush Settings
+              </div>
+
+              {/* Marker Radius */}
+              {!isCustomMarker && (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex justify-between">
+                    <span className="font-semibold" style={{ color: 'var(--text-strong)' }}>
+                      Marker Radius
+                    </span>
+                    <span className="font-bold" style={{ color: 'var(--accent)' }}>
+                      {state.markerRadiusMm.toFixed(1)} mm
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="50.0"
+                    step="0.1"
+                    value={state.markerRadiusMm}
+                    onChange={(e) => supportPainterStore.setMarkerRadiusMm(parseFloat(e.target.value))}
+                    className="w-full accent-accent cursor-pointer"
+                  />
+                </div>
+              )}
+
+              {/* Tip Shape */}
+              {!isCustomMarker && (
+                <div className="flex flex-col gap-1">
+                  <span className="font-semibold" style={{ color: 'var(--text-strong)' }}>
+                    Tip Footprint Shape
+                  </span>
+                  <select
+                    value={state.markerTipShape}
+                    onChange={(e) => supportPainterStore.setMarkerTipShape(e.target.value as any)}
+                    className="w-full text-[11px] px-2 py-1.5 rounded border outline-none font-medium cursor-pointer"
+                    style={{
+                      background: 'var(--surface-1)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-strong)',
+                    }}
+                  >
+                    <option value="circle">Circle Tip</option>
+                    <option value="line">Line Tip (0.5mm width)</option>
+                    <option value="rectangle">Rectangle Tip (2:1 aspect)</option>
+                    <option value="square">Square Tip</option>
+                    <option value="hexagon">Hexagon Tip</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Visual Rotation Angle Gizmo (Dial) */}
+              {((isCustomMarker ? activeCustomBrush.selection.markerTipShape : state.markerTipShape) !== 'circle') && (
+                <div className="flex flex-col gap-2">
+                  <span className="font-semibold" style={{ color: 'var(--text-strong)' }}>
+                    Tip Rotation Angle
+                  </span>
+                  <div className="flex items-center gap-4">
+                    {/* SVG Rotation Gizmo Dial */}
+                    <div className="relative w-12 h-12 flex-shrink-0">
+                      <svg
+                        className="w-full h-full cursor-pointer select-none"
+                        viewBox="0 0 100 100"
+                        onPointerDown={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const handlePointerMove = (moveEv: PointerEvent) => {
+                            const cx = rect.left + rect.width / 2;
+                            const cy = rect.top + rect.height / 2;
+                            const dx = moveEv.clientX - cx;
+                            const dy = moveEv.clientY - cy;
+                            let angleRad = Math.atan2(dy, dx);
+                            // Convert to 0-360 degrees
+                            let angleDeg = Math.round((angleRad * 180) / Math.PI);
+                            if (angleDeg < 0) angleDeg += 360;
+                            
+                            if (isCustomMarker) {
+                              supportPainterStore.updateCustomBrush(activeCustomBrush.id, {
+                                selection: {
+                                  ...activeCustomBrush.selection,
+                                  markerTipRotationDeg: angleDeg,
+                                }
+                              });
+                            } else {
+                              supportPainterStore.setMarkerTipRotationDeg(angleDeg);
+                            }
+                          };
+
+                          handlePointerMove(e.nativeEvent);
+
+                          const handlePointerUp = () => {
+                            window.removeEventListener('pointermove', handlePointerMove);
+                            window.removeEventListener('pointerup', handlePointerUp);
+                          };
+
+                          window.addEventListener('pointermove', handlePointerMove);
+                          window.addEventListener('pointerup', handlePointerUp);
+                        }}
+                      >
+                        {/* Outer track */}
+                        <circle cx="50" cy="50" r="45" fill="var(--surface-1)" stroke="var(--border-subtle)" strokeWidth="4" />
+                        {/* Selected angle radius line indicator */}
+                        {(() => {
+                          const angle = isCustomMarker ? (activeCustomBrush.selection.markerTipRotationDeg ?? 0) : state.markerTipRotationDeg;
+                          const angleRad = (angle * Math.PI) / 180;
+                          const tx = 50 + 40 * Math.cos(angleRad);
+                          const ty = 50 + 40 * Math.sin(angleRad);
+                          return (
+                            <>
+                              <line x1="50" y1="50" x2={tx} y2={ty} stroke="var(--accent)" strokeWidth="6" strokeLinecap="round" />
+                              <circle cx={tx} cy={ty} r="8" fill="#fff" stroke="var(--accent)" strokeWidth="2" />
+                            </>
+                          );
+                        })()}
+                        {/* Center hub */}
+                        <circle cx="50" cy="50" r="6" fill="var(--text-muted)" />
+                      </svg>
+                    </div>
+
+                    <div className="flex-1 flex items-center gap-2">
+                      <input
+                        type="range"
+                        min="0"
+                        max="360"
+                        step="5"
+                        value={isCustomMarker ? (activeCustomBrush.selection.markerTipRotationDeg ?? 0) : state.markerTipRotationDeg}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          if (isCustomMarker) {
+                            supportPainterStore.updateCustomBrush(activeCustomBrush.id, {
+                              selection: {
+                                ...activeCustomBrush.selection,
+                                markerTipRotationDeg: val,
+                              }
+                            });
+                          } else {
+                            supportPainterStore.setMarkerTipRotationDeg(val);
+                          }
+                        }}
+                        className="flex-1 accent-accent cursor-pointer"
+                      />
+                      <span className="font-bold min-w-[36px] text-right" style={{ color: 'var(--text-strong)' }}>
+                        {isCustomMarker ? (activeCustomBrush.selection.markerTipRotationDeg ?? 0) : state.markerTipRotationDeg}°
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Eraser Mode Toggle */}
+              {!isCustomMarker && (
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold" style={{ color: 'var(--text-strong)' }}>
+                    Eraser Mode
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={state.markerEraserMode}
+                    onChange={(e) => supportPainterStore.setMarkerEraserMode(e.target.checked)}
+                    className="w-4 h-4 cursor-pointer accent-accent"
+                  />
+                </div>
+              )}
+
+              {/* Collision Mode Strategy */}
+              {!isCustomMarker && (
+                <div className="flex flex-col gap-1">
+                  <span className="font-semibold" style={{ color: 'var(--text-strong)' }}>
+                    Collision Paint Strategy
+                  </span>
+                  <select
+                    value={state.markerCollisionMode}
+                    onChange={(e) => supportPainterStore.setMarkerCollisionMode(e.target.value as any)}
+                    className="w-full text-[11px] px-2 py-1.5 rounded border outline-none font-medium cursor-pointer"
+                    style={{
+                      background: 'var(--surface-1)',
+                      borderColor: 'var(--border-subtle)',
+                      color: 'var(--text-strong)',
+                    }}
+                  >
+                    <option value="fence">Fence Mode (Blocked by other ROIs)</option>
+                    <option value="push">Push / Erode Mode (Overwrites other ROIs)</option>
+                    <option value="merge">Merge Mode (Unites adjacent ROIs)</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Custom Brushes Selection Section */}
           <div className="flex flex-col gap-2 border-t pt-2.5" style={{ borderColor: 'var(--border-subtle)' }}>

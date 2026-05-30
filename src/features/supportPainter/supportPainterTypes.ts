@@ -1,6 +1,6 @@
 // ─── Brush Identity ─────────────────────────────────────────────────────────
 
-export type BrushType = 'MacroFace' | 'Ridge' | 'Point' | 'CylinderSides' | 'CylinderMinima' | 'Ring' | 'ManualCircle' | 'ManualSquare';
+export type BrushType = 'MacroFace' | 'Ridge' | 'Point' | 'CylinderSides' | 'CylinderMinima' | 'Ring' | 'ManualCircle' | 'ManualSquare' | 'Marker';
 
 // ─── Custom Support Operations & Pipeline Typings ───────────────────────────
 
@@ -36,9 +36,16 @@ export interface CustomBrushTemplate {
   id: string;
   name: string;
   color: string;
+  baseBrush?: BrushType; // Selection algorithm base type
   
   // Topology selection parameters
   selection: {
+    // Optional setting enablement switches
+    enableSlopeLimit?: boolean;
+    enableNormalConeLimit?: boolean;
+    enableCurvatureLimit?: boolean;
+    enableDihedralLimit?: boolean;
+
     // Symmetrical normal cone range relative to local vertex normal
     normalConeAngleMinDeg: number;
     normalConeAngleMaxDeg: number;
@@ -49,6 +56,20 @@ export interface CustomBrushTemplate {
     curvatureMin: number;
     curvatureMax: number;
     dihedralAngleToleranceDeg: number;
+
+    // Advanced Smart Brush Preset Tunables
+    creaseSeedAngleDeg?: number;        // Ridge: seed dihedral threshold
+    creasePropagateAngleDeg?: number;   // Ridge: propagate dihedral threshold
+    ridgeAlignmentTolerance?: number;    // Ridge: path direction dot product limit
+    geodesicPathType?: 'circle' | 'square'; // Point: Dijkstra vs Tangent clamp
+    zHeightEnvelopeToleranceMm?: number; // Ring: Z window tolerance
+
+    // Marker-specific parameters
+    markerRadiusMm?: number;
+    markerTipShape?: 'circle' | 'line' | 'rectangle' | 'square' | 'hexagon';
+    markerTipRotationDeg?: number;
+    markerEraserMode?: boolean;
+    markerCollisionMode?: 'fence' | 'push' | 'merge';
   };
 
   // Ordered operational pipeline
@@ -66,6 +87,7 @@ export const BRUSH_COLORS: Record<BrushType, string> = {
   Ring:           '#FF5B6F',   // pink/red
   ManualCircle:   '#06B6D4',   // teal/cyan
   ManualSquare:   '#F59E0B',   // amber/gold
+  Marker:         '#E11D48',   // premium rose/red
 };
 
 // ─── Interaction Phase State Machine ────────────────────────────────────────
@@ -187,6 +209,13 @@ export interface SupportPainterState {
 
   // ─── Version 4 Manual Geodesic Brushes State ───
   brushRadiusMm:          number;
+
+  // ─── Marker Brush State ───
+  markerRadiusMm:         number;
+  markerTipShape:         'circle' | 'line' | 'rectangle' | 'square' | 'hexagon';
+  markerTipRotationDeg:   number;
+  markerEraserMode:       boolean;
+  markerCollisionMode:    'fence' | 'push' | 'merge';
 }
 
 // ─── Store Action Payloads ───────────────────────────────────────────────────
