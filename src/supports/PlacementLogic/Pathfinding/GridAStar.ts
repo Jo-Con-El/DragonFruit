@@ -73,6 +73,8 @@ export interface GridAStarOptions {
     endpointOnlyCollisionCheck?: boolean;
     /** Optional label used by the pathfinding debug overlay. */
     debugLabel?: string;
+    /** When true, capture expanded/frontier/path snapshots for the debug overlay. */
+    captureDebug?: boolean;
 }
 
 export interface GridAStarResult {
@@ -249,12 +251,14 @@ export function gridAStar(
     const occupancy = opts.occupancy;
     const ignoreSupportId = opts.ignoreSupportId;
     const endpointOnlyCollisionCheck = !!opts.endpointOnlyCollisionCheck;
+    const captureDebug = !!opts.captureDebug;
 
     // Angle constraint: minimum angle from vertical in degrees
     // Converted to maximum lateral-per-vertical ratio
     const minAngleFromVertDeg = opts.minAngleFromVerticalDeg ?? 15;
     const maxLateralPerDrop = Math.tan((minAngleFromVertDeg * Math.PI) / 180);
     const goalValidator = opts.goalValidator;
+    const goalPlaneHeuristic = (qz: number): number => Math.max(0, qz - gqz) * step;
 
     // Per-neighbor static costs (independent of node position).
     const neighborStaticCosts = new Array<number>(NEIGHBOR_RUNTIME.length);
@@ -306,7 +310,7 @@ export function gridAStar(
         for (const [k, v] of warmStart.cameFrom) cameFrom.set(k, v);
     } else {
         const startKey = cellKeyInt(sqx, sqy, sqz);
-        const h = Math.max(0, sqz - gqz); // pure vertical heuristic
+        const h = goalPlaneHeuristic(sqz);
         openSet = [];
         heapPush(openSet, { key: startKey, x: sqx, y: sqy, z: sqz, g: 0, f: h });
         gScore.set(startKey, 0);
@@ -315,6 +319,9 @@ export function gridAStar(
     let expansions = 0;
     let goalEntry: AStarEntry | null = null;
     const debugExpandedNodes: Vec3[] = [];
+    const edgeBlockedCache = new Map<number, Map<number, boolean>>();
+    const nodeDistanceCache = new Map<number, number>();
+    const occupancyCache = new Map<number, boolean>();
 
     const STAGNATION_LIMIT = 600;
     let bestZReached = sqz;
@@ -328,16 +335,56 @@ export function gridAStar(
         return { x: ux - 0x4000, y: uy - 0x4000, z: uz - 0x4000 };
     }
 
+    function getNodeDistance(key: number, wx: number, wy: number, wz: number): number {
+        const cached = nodeDistanceCache.get(key);
+        if (cached !== undefined) return cached;
+        const distance = sdf.distanceAt(wx, wy, wz);
+        nodeDistanceCache.set(key, distance);
+        return distance;
+    }
+
+    function getEdgeBlocked(
+        aKey: number,
+        bKey: number,
+        compute: () => boolean,
+    ): boolean {
+        const lowKey = aKey < bKey ? aKey : bKey;
+        const highKey = aKey < bKey ? bKey : aKey;
+        let highMap = edgeBlockedCache.get(lowKey);
+        if (!highMap) {
+            highMap = new Map<number, boolean>();
+            edgeBlockedCache.set(lowKey, highMap);
+        } else {
+            const cached = highMap.get(highKey);
+            if (cached !== undefined) return cached;
+        }
+        const blocked = compute();
+        highMap.set(highKey, blocked);
+        return blocked;
+    }
+
+    function getNodeOccupied(key: number, wx: number, wy: number, wz: number): boolean {
+        const cached = occupancyCache.get(key);
+        if (cached !== undefined) return cached;
+        const occupied = occupancy ? occupancy.isOccupied(wx, wy, wz, ignoreSupportId) : false;
+        occupancyCache.set(key, occupied);
+        return occupied;
+    }
+
     while (openSet.length > 0 && expansions < maxExp) {
         const current = heapPop(openSet)!;
+        const bestKnownG = gScore.get(current.key);
+        if (bestKnownG !== undefined && current.g > bestKnownG) continue;
         if (closedSet.has(current.key)) continue;
         closedSet.add(current.key);
         expansions++;
-        debugExpandedNodes.push({
-            x: current.x * step,
-            y: current.y * step,
-            z: current.z * step,
-        });
+        if (captureDebug) {
+            debugExpandedNodes.push({
+                x: current.x * step,
+                y: current.y * step,
+                z: current.z * step,
+            });
+        }
 
         if (current.z < bestZReached) {
             bestZReached = current.z;
@@ -389,14 +436,19 @@ export function gridAStar(
             const wy = ny * step;
             const wz = nz * step;
 
-            if (endpointOnlyCollisionCheck
-                ? sdf.isBlocked(wx, wy, wz, clearance)
-                : sdf.segmentBlocked(cwx, cwy, cwz, wx, wy, wz, clearance)
-            ) continue;
+            if (occupancy && getNodeOccupied(nKey, wx, wy, wz)) continue;
 
-            if (occupancy && occupancy.isOccupied(wx, wy, wz, ignoreSupportId)) continue;
+            const dist = getNodeDistance(nKey, wx, wy, wz);
+            if (endpointOnlyCollisionCheck) {
+                if (dist < clearance) continue;
+            } else if (getEdgeBlocked(
+                current.key,
+                nKey,
+                () => sdf.segmentBlocked(cwx, cwy, cwz, wx, wy, wz, clearance),
+            )) {
+                continue;
+            }
 
-            const dist = sdf.distanceAt(wx, wy, wz);
             const clearancePenalty = dist < clearance * 2 ? (clearance * 2 - dist) * 0.5 : 0;
             const tentativeG = current.g + neighborStaticCosts[ni] + clearancePenalty;
 
@@ -406,7 +458,7 @@ export function gridAStar(
             gScore.set(nKey, tentativeG);
             cameFrom.set(nKey, current.key);
 
-            const h = Math.max(0, nz - gqz);
+            const h = goalPlaneHeuristic(nz);
             heapPush(openSet, { key: nKey, x: nx, y: ny, z: nz, g: tentativeG, f: tentativeG + h });
         }
     }
@@ -417,7 +469,7 @@ export function gridAStar(
         reached: boolean,
         rawPath: Vec3[],
         simplifiedPath: Vec3[],
-    ): GridAStarDebugSnapshot => ({
+    ): GridAStarDebugSnapshot | undefined => captureDebug ? ({
         label: opts.debugLabel ?? 'astar',
         searchStepMm: step,
         expansions,
@@ -432,7 +484,7 @@ export function gridAStar(
         })),
         rawPath,
         simplifiedPath,
-    });
+    }) : undefined;
 
     if (!goalEntry) {
         return {

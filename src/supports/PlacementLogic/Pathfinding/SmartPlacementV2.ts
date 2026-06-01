@@ -1963,6 +1963,7 @@ export function calculateSmartPlacementV2(
         // visit, dropping first-frame cold cost from ~30k to ~600 BVH calls.
         endpointOnlyCollisionCheck: isPreview,
         debugLabel: 'fine',
+        captureDebug: debugEnabled,
     }, warmStart);
     if (debugEnabled && result.debug) {
         debugPasses = [result.debug];
@@ -2005,6 +2006,7 @@ export function calculateSmartPlacementV2(
             goalValidator,
             endpointOnlyCollisionCheck: isPreview,
             debugLabel: 'wide',
+            captureDebug: debugEnabled,
         }, null); // always cold-start wide search (different grid quantisation)
         if (debugEnabled && wideResult.debug) {
             debugPasses = [...debugPasses, wideResult.debug];
