@@ -95,19 +95,6 @@ export const LeafRenderer = React.memo(function LeafRenderer({
         const branchFamilyHeld = branchPlacementStore.getSnapshot().altActive
             || isSupportPlacementBindingSatisfiedByModifierState(branchFamilyBinding, getSupportPlacementModifierState(e));
         if (branchFamilyHeld) {
-            e.stopPropagation();
-            if (e.nativeEvent) {
-                e.nativeEvent.stopPropagation?.();
-                e.nativeEvent.stopImmediatePropagation?.();
-            }
-
-            window.dispatchEvent(new CustomEvent('brace-leaf-click', {
-                detail: {
-                    leafId: leaf.id,
-                    point: e.point ? { x: e.point.x, y: e.point.y, z: e.point.z } : null,
-                    intersection: e,
-                },
-            }));
             return;
         }
 

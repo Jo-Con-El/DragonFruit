@@ -153,6 +153,36 @@ test('buildBranchData prefers shaft deviation over aggressively stretching the c
     );
 });
 
+test('buildBranchData keeps the host knot separate from the cone socket so the shaft retains real span', () => {
+    const tipPos = { x: 0, y: 0, z: 0 };
+    const tipNormal = { x: 1, y: 0, z: 0 };
+    const parentKnot: Knot = {
+        id: 'knot-host',
+        parentShaftId: 'trunk-1',
+        pos: { x: 3.5, y: 0, z: 2.2 },
+    };
+
+    const branch = buildBranchData({
+        tipPos,
+        tipNormal,
+        modelId: 'model-1',
+        parentKnot,
+    }).branch;
+
+    const socketPos = getFinalSocketPosition(branch.contactCone!);
+    const hostToSocketDistance = new THREE.Vector3(
+        socketPos.x - parentKnot.pos.x,
+        socketPos.y - parentKnot.pos.y,
+        socketPos.z - parentKnot.pos.z,
+    ).length();
+
+    assert.ok(
+        hostToSocketDistance > 0.5,
+        `expected branch shaft to retain visible span, but host-to-socket distance was ${hostToSocketDistance.toFixed(3)}mm`,
+    );
+    assert.ok(branch.segments.length >= 2);
+});
+
 test('frustum cone collision checks catch wide-end clips that a narrow start-radius shaft would miss', () => {
     const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(0.25, 0.25, 0.45),

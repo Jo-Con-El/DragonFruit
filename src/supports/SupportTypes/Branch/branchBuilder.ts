@@ -70,6 +70,23 @@ function buildAuthoredBranchCone(
     );
 }
 
+function buildNominalBranchSocketTarget(
+    tipPos: Vec3,
+    tipNormal: Vec3,
+    effectiveConeAxis: Vec3,
+    tipProfile: SupportTipProfile,
+): Vec3 {
+    const nominalCone: ContactCone = {
+        id: 'preview-branch-cone',
+        pos: tipPos,
+        normal: effectiveConeAxis,
+        surfaceNormal: tipNormal,
+        profile: tipProfile,
+    };
+
+    return getFinalSocketPosition(nominalCone);
+}
+
 function scoreBranchConeCandidate(args: {
     socketPos: THREE.Vector3;
     desiredSocket: THREE.Vector3;
@@ -98,11 +115,16 @@ function findBestBranchConePlacement(args: {
     tipNormal: Vec3;
     effectiveConeAxis: Vec3;
     tipProfile: SupportTipProfile;
-    parentKnotPos: Vec3;
     mesh?: THREE.Mesh;
 }): { cone: ContactCone; socketPos: Vec3; rerouted: boolean } {
-    const { tipPos, tipNormal, effectiveConeAxis, tipProfile, parentKnotPos, mesh } = args;
-    const directCone = buildAuthoredBranchCone(tipPos, tipNormal, effectiveConeAxis, tipProfile, parentKnotPos);
+    const { tipPos, tipNormal, effectiveConeAxis, tipProfile, mesh } = args;
+    const nominalSocketTarget = buildNominalBranchSocketTarget(
+        tipPos,
+        tipNormal,
+        effectiveConeAxis,
+        tipProfile,
+    );
+    const directCone = buildAuthoredBranchCone(tipPos, tipNormal, effectiveConeAxis, tipProfile, nominalSocketTarget);
     const directSocketPos = getFinalSocketPosition(directCone);
 
     const surfaceNormal = normalizeOrFallback(
@@ -114,7 +136,7 @@ function findBestBranchConePlacement(args: {
         directCone.pos.y + (directCone.surfaceNormal?.y ?? tipNormal.y) * (directCone.diskLengthOverride ?? 0),
         directCone.pos.z + (directCone.surfaceNormal?.z ?? tipNormal.z) * (directCone.diskLengthOverride ?? 0),
     );
-    const desiredSocket = new THREE.Vector3(parentKnotPos.x, parentKnotPos.y, parentKnotPos.z);
+    const desiredSocket = new THREE.Vector3(nominalSocketTarget.x, nominalSocketTarget.y, nominalSocketTarget.z);
     const desiredVector = desiredSocket.clone().sub(coneStart);
     const desiredDistance = Math.max(0.25, desiredVector.length());
     const desiredDirection = normalizeOrFallback(desiredVector, surfaceNormal);
@@ -283,7 +305,6 @@ export function buildBranchData(input: BranchBuildInput): BranchBuildResult {
         tipNormal,
         effectiveConeAxis,
         tipProfile,
-        parentKnotPos: parentKnot.pos,
         mesh,
     });
 
