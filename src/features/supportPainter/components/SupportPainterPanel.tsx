@@ -206,11 +206,10 @@ export function SupportPainterPanel({
   const [showCustomBrushModal, setShowCustomBrushModal] = useState(false);
   const [editingCustomBrush, setEditingCustomBrush] = useState<CustomBrushTemplate | null>(null);
   const [expanded, setExpanded] = useState(false);  // collapsed = support mode, expanded = painter mode
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [pipelineEditingContext, setPipelineEditingContext] = useState<'active' | 'roi' | null>(null);
   const [editingPipeline, setEditingPipeline] = useState<CustomSupportOperation[]>([]);
-  const activeSelectedIds = selectedIds.filter(id => state.regions.has(id));
+  const activeSelectedIds = Array.from(state.selectedRegionIds).filter(id => state.regions.has(id));
 
   const getDefaultPipeline = (brushType: BrushType): CustomSupportOperation[] => {
     const isPointPathOrMarker = brushType === 'PointPath' || brushType === 'Marker';
@@ -534,6 +533,29 @@ export function SupportPainterPanel({
     });
   };
 
+  const handleClearAllRegionsAndSupports = () => {
+    const beforeState = getSupportsSnapshot();
+    let nextState = beforeState;
+    
+    for (const regionId of state.regions.keys()) {
+      nextState = deleteSupportsForRoi(nextState, regionId);
+    }
+    
+    setSupportSnapshot(nextState);
+    supportPainterStore.clearAll();
+    
+    pushHistory({
+      type: SUPPORT_EDIT_REPLACE,
+      description: 'Delete all ROI regions and supports',
+      payload: {
+        before: beforeState,
+        after: nextState,
+        painterRegionsBefore: new Map(state.regions),
+        painterRegionsAfter: new Map(),
+      },
+    });
+  };
+
   const handleScanMinima = async () => {
     if (!activeModelId) return;
     setIsScanning(true);
@@ -612,6 +634,35 @@ export function SupportPainterPanel({
       supportPainterStore.showToast(['Minima scan failed.', String(err)]);
     } finally {
       setIsScanning(false);
+    }
+  };
+
+  const handleListItemClick = (event: React.MouseEvent, regionId: string, index: number) => {
+    event.stopPropagation();
+    const currentSelection = new Set(state.selectedRegionIds);
+    const sortedRegions = [...completedRegions].sort((a, b) => b.createdAt - a.createdAt);
+
+    if (event.ctrlKey || event.metaKey) {
+      if (currentSelection.has(regionId)) {
+        currentSelection.delete(regionId);
+      } else {
+        currentSelection.add(regionId);
+      }
+      supportPainterStore.setSelectedRegionIds(currentSelection, index);
+    } else if (event.shiftKey && state.lastSelectedIndex !== null) {
+      const lastIdx = state.lastSelectedIndex;
+      const start = Math.min(lastIdx, index);
+      const end = Math.max(lastIdx, index);
+      
+      currentSelection.clear();
+      for (let i = start; i <= end; i++) {
+        currentSelection.add(sortedRegions[i].id);
+      }
+      supportPainterStore.setSelectedRegionIds(currentSelection, lastIdx);
+    } else {
+      currentSelection.clear();
+      currentSelection.add(regionId);
+      supportPainterStore.setSelectedRegionIds(currentSelection, index);
     }
   };
 
@@ -1524,11 +1575,11 @@ export function SupportPainterPanel({
           </Button>
             </div>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3 flex-1 min-h-0">
               {/* 1. Completed ROI History & Saves list */}
           {/* ROI History and Saves Rollup */}
           <div
-            className="flex flex-col gap-1.5 border-t pt-2.5 text-left"
+            className="flex flex-col gap-1.5 border-t pt-2.5 text-left flex-1 min-h-0"
             style={{ borderColor: 'var(--border-subtle)' }}
           >
             <div className="flex items-center justify-between">
@@ -1552,11 +1603,27 @@ export function SupportPainterPanel({
                   ROI History and Saves ({completedRegions.length})
                 </span>
               </div>
+              {state.regions.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm("Are you sure you want to delete all ROI regions and their supports?")) {
+                      handleClearAllRegionsAndSupports();
+                    }
+                  }}
+                  className="text-[10px] font-semibold transition-colors duration-150 py-0.5 px-1.5 rounded hover:bg-red-500/10"
+                  style={{
+                    color: 'var(--danger, #ef4444)',
+                  }}
+                >
+                  Delete All
+                </button>
+              )}
             </div>
 
             {isHistoryExpanded && (
-              <div className="flex flex-col gap-2.5 mt-1">
-                <div className="max-h-[180px] overflow-y-auto pr-1 flex flex-col gap-1.5 scrollbar-thin">
+              <div className="flex flex-col gap-2.5 mt-1 flex-1 min-h-0">
+                <div className="flex-1 min-h-[140px] max-h-[45vh] overflow-y-auto pr-1 flex flex-col gap-1.5 scrollbar-thin">
                   {completedRegions.length === 0 ? (
                     <div
                       className="text-center py-4 text-[11px] italic"
@@ -1567,7 +1634,7 @@ export function SupportPainterPanel({
                   ) : (
                     completedRegions
                       .sort((a, b) => b.createdAt - a.createdAt)
-                      .map((region) => {
+                      .map((region, index) => {
                         const details = BRUSH_DETAILS[region.brushType];
                         const isRegionExpanded = !!expandedRegions[region.id];
 
@@ -1580,13 +1647,13 @@ export function SupportPainterPanel({
                         const regionAnchors = Object.values(supportState.anchors).filter(a => a.roiId === region.id);
                         const totalChildSupports = regionTrunks.length + regionBranches.length + regionLeaves.length + regionTwigs.length + regionSticks.length + regionAnchors.length;
 
-                        const isSelected = state.selectedRegionId === region.id;
+                        const isSelected = state.selectedRegionIds.has(region.id);
 
                         return (
                           <div
                             key={region.id}
                             className="flex flex-col p-2 rounded-lg border text-xs gap-1 transition-all duration-150"
-                            onClick={() => supportPainterStore.setSelectedRegionId(isSelected ? null : region.id)}
+                            onClick={(e) => handleListItemClick(e, region.id, index)}
                             style={{
                               background: 'var(--surface-2)',
                               borderColor: isSelected ? 'var(--accent, #ec4899)' : 'var(--border-subtle)',
@@ -1596,21 +1663,6 @@ export function SupportPainterPanel({
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-1.5 min-w-0">
-                                {/* Multi-select Checkbox */}
-                                <input
-                                  type="checkbox"
-                                  checked={activeSelectedIds.includes(region.id)}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    if (e.target.checked) {
-                                      setSelectedIds(prev => [...prev, region.id]);
-                                    } else {
-                                      setSelectedIds(prev => prev.filter(id => id !== region.id));
-                                    }
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="w-3.5 h-3.5 rounded border border-subtle bg-surface cursor-pointer flex-shrink-0 accent-[#ec4899]"
-                                />
                                 {/* Chevron Toggle button */}
                                 <IconButton
                                   onClick={(e) => {
@@ -1767,7 +1819,7 @@ export function SupportPainterPanel({
                   onClick={(e) => {
                     e.stopPropagation();
                     supportPainterStore.booleanOperate('union', activeSelectedIds[0], activeSelectedIds[1]);
-                    setSelectedIds([]);
+                    supportPainterStore.setSelectedRegionIds(new Set());
                   }}
                   className="flex-1 py-1 rounded bg-[#ec4899] text-white font-bold hover:bg-[#db2777] transition-all text-center"
                   title="Merge regions (A ∪ B)"
@@ -1778,7 +1830,7 @@ export function SupportPainterPanel({
                   onClick={(e) => {
                     e.stopPropagation();
                     supportPainterStore.booleanOperate('subtract', activeSelectedIds[0], activeSelectedIds[1]);
-                    setSelectedIds([]);
+                    supportPainterStore.setSelectedRegionIds(new Set());
                   }}
                   className="flex-1 py-1 rounded text-white font-bold hover:bg-[#4b5563] border border-[#ec4899]/50 transition-all text-center"
                   style={{ background: 'var(--surface-2, #374151)' }}
@@ -1790,7 +1842,7 @@ export function SupportPainterPanel({
                   onClick={(e) => {
                     e.stopPropagation();
                     supportPainterStore.booleanOperate('intersect', activeSelectedIds[0], activeSelectedIds[1]);
-                    setSelectedIds([]);
+                    supportPainterStore.setSelectedRegionIds(new Set());
                   }}
                   className="flex-1 py-1 rounded text-white font-bold hover:bg-[#4b5563] border border-[#ec4899]/50 transition-all text-center"
                   style={{ background: 'var(--surface-2, #374151)' }}

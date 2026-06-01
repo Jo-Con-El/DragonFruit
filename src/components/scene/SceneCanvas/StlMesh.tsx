@@ -1179,6 +1179,28 @@ if (uDitherAmount > 0.0) {
 
           const isShiftPressed = e.shiftKey || false;
 
+          if (mode === 'supportPainter' && isActiveModel && e.button === 0) {
+            const faceIndex = e.faceIndex;
+            if (faceIndex !== undefined && faceIndex !== null) {
+              const snap = supportPainterStore.getSnapshot();
+              if (e.ctrlKey || e.metaKey) {
+                e.stopPropagation();
+                let targetRegionId: string | null = null;
+                for (const [id, region] of snap.regions.entries()) {
+                  if (region.triangleIds.has(faceIndex)) {
+                    targetRegionId = id;
+                    break;
+                  }
+                }
+                if (targetRegionId) {
+                  console.log(`[Support Painter] 3D canvas hotkey selection: ROI ${targetRegionId}`);
+                  supportPainterStore.setSelectedRegionId(targetRegionId);
+                }
+                return;
+              }
+            }
+          }
+
           if (mode === 'supportPainter' && !isShiftPressed && isActiveModel && e.button === 0) {
             e.stopPropagation();
             const faceIndex = e.faceIndex;

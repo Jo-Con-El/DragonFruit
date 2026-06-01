@@ -126,6 +126,7 @@ export function useRoiHighlightMaterial(
         attribute float aTriangleId;
         varying float vTriangleId;
         varying vec3 vNormal;
+        varying vec3 vViewPosition;
 
         void main() {
           // Zero-dilation projection ensures absolute alignment with model geometry.
@@ -135,6 +136,7 @@ export function useRoiHighlightMaterial(
           #include <clipping_planes_vertex>
           vTriangleId = aTriangleId;
           vNormal = normalize(normalMatrix * normal);
+          vViewPosition = -mvPosition.xyz;
           gl_Position = projectionMatrix * mvPosition;
         }
       `,
@@ -148,6 +150,7 @@ export function useRoiHighlightMaterial(
 
         varying float vTriangleId;
         varying vec3 vNormal;
+        varying vec3 vViewPosition;
 
         void main() {
           #include <clipping_planes_fragment>
@@ -162,6 +165,17 @@ export function useRoiHighlightMaterial(
             discard;
           }
 
+          vec3 normalVec = vNormal;
+          if (length(normalVec) < 0.001) {
+            normalVec = vec3(0.0, 0.0, 1.0);
+          }
+          vec3 normalizedNormal = normalize(normalVec);
+          vec3 viewDir = normalize(vViewPosition);
+
+          // Calculate silhouette edge outline mask
+          float ndotv = abs(dot(normalizedNormal, viewDir));
+          float edgeOutline = smoothstep(0.7, 0.9, 1.0 - ndotv);
+
           vec3 finalColor = roi.rgb;
           float emissiveBoost = 0.0;
 
@@ -171,19 +185,21 @@ export function useRoiHighlightMaterial(
             finalColor = mix(uBaseColor, roi.rgb, pulse);
             emissiveBoost = pulse * 0.5;
           } else if (roi.a < 0.85) {
-            // Selected/Focused region: strong pulsing glow for rapid identification
-            float pulse = 0.5 + 0.5 * sin(uTime * 12.0);
-            emissiveBoost = 0.8 + pulse * 1.0;
+            // Selected/Focused region: slow sinusoidal pulse at ~1Hz
+            float pulse = 0.7 + 0.3 * sin(uTime * 6.28318);
+            finalColor = roi.rgb * pulse;
+            emissiveBoost = 0.6 + pulse * 0.8;
+            
+            // Pulse active selection's silhouette black edge
+            finalColor = mix(finalColor, vec3(0.0), edgeOutline * 0.95);
           } else {
-            // Committed ROI color
-            emissiveBoost = 0.65;
+            // Committed inactive ROI: no pulsing, static darkened cell-shaded silhouette outline
+            finalColor = roi.rgb;
+            emissiveBoost = 0.45;
+            
+            // Border is a static darkened outline of their respective color
+            finalColor = mix(finalColor, roi.rgb * 0.25, edgeOutline * 0.85);
           }
-
-          vec3 normalVec = vNormal;
-          if (length(normalVec) < 0.001) {
-            normalVec = vec3(0.0, 0.0, 1.0);
-          }
-          vec3 normalizedNormal = normalize(normalVec);
 
           // Harmonic Diffuse Lambertian Lighting
           vec3 lightDir = normalize(vec3(0.5, 0.75, 1.0));
@@ -191,11 +207,11 @@ export function useRoiHighlightMaterial(
           vec3 litColor = finalColor * diffuse;
 
           // Boost self-emissive glow for high contrast
-          litColor += roi.rgb * 0.25 * emissiveBoost;
+          litColor += finalColor * 0.25 * emissiveBoost;
 
           // Add a subtle rim light/ambient glow to the selection
           float rim = 1.0 - max(0.0, dot(normalizedNormal, vec3(0.0, 0.0, 1.0)));
-          litColor += roi.rgb * pow(rim, 4.0) * 0.25 * emissiveBoost;
+          litColor += finalColor * pow(rim, 4.0) * 0.25 * emissiveBoost;
 
           gl_FragColor = vec4(litColor, 1.0);
         }

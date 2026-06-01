@@ -221,6 +221,8 @@ export interface SupportPainterState {
   // [AGENT_NOTE] Governs persistence of ROIs: 'none' (transient), 'session' (in-memory only), 'voxl' (serialized to file).
   roiTrackingMode:          'none' | 'session' | 'voxl';
   selectedRegionId:         string | null;
+  selectedRegionIds:        Set<string>;
+  lastSelectedIndex:        number | null;
 
   // ─── Version 3 Custom Support Brushes State ───
   customBrushes:          Map<string, CustomBrushTemplate>;

@@ -43,6 +43,8 @@ let hoveredWorldPoint: [number, number, number] | null = null;
 let proposedTriangleIds = new Set<number>();
 let directGenEnabled = false;
 let selectedRegionId: string | null = null;
+let selectedRegionIds = new Set<string>();
+let lastSelectedIndex: number | null = null;
 let clientAdjacencyMap: ClientAdjacencyMap | null = null;
 
 // ─── Extended Spacing & Suppression Parameters [STORE_STATE] ───
@@ -173,6 +175,8 @@ let storeSnapshot: SupportPainterState = {
   toast: null,
   roiTrackingMode,
   selectedRegionId,
+  selectedRegionIds: new Set(selectedRegionIds),
+  lastSelectedIndex,
   customBrushes: new Map(customBrushes),
   activeCustomBrushId,
   brushRadiusMm,
@@ -217,6 +221,8 @@ function updateSnapshot() {
     toast: toast ? { ...toast } : null,
     roiTrackingMode,
     selectedRegionId,
+    selectedRegionIds: new Set(selectedRegionIds),
+    lastSelectedIndex,
     customBrushes: new Map(customBrushes),
     activeCustomBrushId,
     brushRadiusMm,
@@ -362,7 +368,8 @@ function _recomputeTriangleColorMap(): TriangleColorMap {
   // 1. Committed regions
   for (const region of regions.values()) {
     const rgb = hexToRgb(region.color);
-    const alpha = region.id === selectedRegionId ? 200 : 255;
+    const isSelected = selectedRegionIds.has(region.id);
+    const alpha = isSelected ? 200 : 255;
     for (const triId of region.triangleIds) {
       map.set(triId, [rgb[0], rgb[1], rgb[2], alpha]);
     }
@@ -735,7 +742,27 @@ export const supportPainterStore = {
 
   removeRegion(regionId: string) {
     if (!regions.has(regionId)) return;
+
+    const sortedRegions = Array.from(regions.values()).sort((a, b) => b.createdAt - a.createdAt);
+    const idx = sortedRegions.findIndex(r => r.id === regionId);
+
     regions.delete(regionId);
+
+    if (selectedRegionIds.has(regionId) || selectedRegionId === regionId) {
+      selectedRegionIds.delete(regionId);
+      
+      const remainingRegions = Array.from(regions.values()).sort((a, b) => b.createdAt - a.createdAt);
+      let nextSelectedId: string | null = null;
+      if (remainingRegions.length > 0) {
+        const nextIdx = Math.min(idx, remainingRegions.length - 1);
+        nextSelectedId = remainingRegions[nextIdx].id;
+      }
+      
+      selectedRegionId = nextSelectedId;
+      selectedRegionIds = nextSelectedId ? new Set([nextSelectedId]) : new Set();
+      lastSelectedIndex = nextSelectedId ? Math.min(idx, remainingRegions.length - 1) : null;
+    }
+
     triangleColorMap = _recomputeTriangleColorMap();
     updateSnapshot();
     notify();
@@ -821,6 +848,9 @@ export const supportPainterStore = {
     proposedTriangleIds.clear();
     hoveredTriangleId = null;
     scannedMinima = [];
+    selectedRegionId = null;
+    selectedRegionIds.clear();
+    lastSelectedIndex = null;
     triangleColorMap = _recomputeTriangleColorMap();
     updateSnapshot();
     notify();
@@ -908,6 +938,19 @@ export const supportPainterStore = {
   setSelectedRegionId(id: string | null) {
     if (selectedRegionId === id) return;
     selectedRegionId = id;
+    selectedRegionIds = id ? new Set([id]) : new Set();
+    lastSelectedIndex = null;
+    triangleColorMap = _recomputeTriangleColorMap();
+    updateSnapshot();
+    notify();
+  },
+
+  setSelectedRegionIds(ids: Set<string>, index?: number | null) {
+    selectedRegionIds = new Set(ids);
+    selectedRegionId = ids.size > 0 ? Array.from(ids)[ids.size - 1] : null;
+    if (index !== undefined) {
+      lastSelectedIndex = index;
+    }
     triangleColorMap = _recomputeTriangleColorMap();
     updateSnapshot();
     notify();
