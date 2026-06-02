@@ -71,7 +71,7 @@ function expandGeometryToTriangleSoup(geometry: THREE.BufferGeometry): Float32Ar
   return out;
 }
 
-interface WeldedTriangle {
+export interface WeldedTriangle {
   id: number; // Face index
   v0: THREE.Vector3; // World space
   v1: THREE.Vector3; // World space
@@ -533,6 +533,275 @@ export function calculateZHeightDensitySpacing(
 
   // Direct, smooth interpolation between Starting Spacing and Ending Spacing
   return sStart + curveVal * (sEnd - sStart);
+}
+
+export function samplePoissonDiscWarped(
+  region: ROIRegion,
+  minZ: number,
+  maxZ: number,
+  op: CustomSupportOperation,
+  triangles: WeldedTriangle[],
+  opTrunkWidth: number
+): BasicSampledPoint[] {
+  const baseSpacing = Math.max(0.25, op.spacing.baseSpacingMm);
+  const r = baseSpacing; // uniform radius in warped space
+
+  const warpedTriangles: {
+    id: number;
+    v0: THREE.Vector2; // warped
+    v1: THREE.Vector2; // warped
+    v2: THREE.Vector2; // warped
+    tri: WeldedTriangle;
+  }[] = [];
+
+  const minWarped = new THREE.Vector2(Infinity, Infinity);
+  const maxWarped = new THREE.Vector2(-Infinity, -Infinity);
+
+  const getWarpScale = (z: number): number => {
+    if (!op.enableZHeightDensity) return 1.0;
+    const s = calculateZHeightDensitySpacing(z, minZ, maxZ, op, opTrunkWidth);
+    return baseSpacing / Math.max(0.1, s);
+  };
+
+  for (const triId of region.triangleIds) {
+    const tri = triangles[triId];
+    if (!tri) continue;
+
+    const w0 = getWarpScale(tri.v0.z);
+    const w1 = getWarpScale(tri.v1.z);
+    const w2 = getWarpScale(tri.v2.z);
+
+    const pv0 = new THREE.Vector2(tri.v0.x * w0, tri.v0.y * w0);
+    const pv1 = new THREE.Vector2(tri.v1.x * w1, tri.v1.y * w1);
+    const pv2 = new THREE.Vector2(tri.v2.x * w2, tri.v2.y * w2);
+
+    warpedTriangles.push({
+      id: triId,
+      v0: pv0,
+      v1: pv1,
+      v2: pv2,
+      tri
+    });
+
+    for (const pv of [pv0, pv1, pv2]) {
+      minWarped.x = Math.min(minWarped.x, pv.x);
+      minWarped.y = Math.min(minWarped.y, pv.y);
+      maxWarped.x = Math.max(maxWarped.x, pv.x);
+      maxWarped.y = Math.max(maxWarped.y, pv.y);
+    }
+  }
+
+  if (warpedTriangles.length === 0) return [];
+
+  // 2D Spatial Grid of Triangles in warped space
+  const binSize = Math.max(2.0, 3.0 * r);
+  const cols = Math.ceil((maxWarped.x - minWarped.x) / binSize) || 1;
+  const rows = Math.ceil((maxWarped.y - minWarped.y) / binSize) || 1;
+  const triGrid: number[][][] = Array.from({ length: cols }, () =>
+    Array.from({ length: rows }, () => [])
+  );
+
+  const getGridIndices = (pv: THREE.Vector2) => {
+    const cx = Math.max(0, Math.min(cols - 1, Math.floor((pv.x - minWarped.x) / binSize)));
+    const cy = Math.max(0, Math.min(rows - 1, Math.floor((pv.y - minWarped.y) / binSize)));
+    return { cx, cy };
+  };
+
+  for (let i = 0; i < warpedTriangles.length; i++) {
+    const wt = warpedTriangles[i];
+    const minX = Math.min(wt.v0.x, wt.v1.x, wt.v2.x);
+    const maxX = Math.max(wt.v0.x, wt.v1.x, wt.v2.x);
+    const minY = Math.min(wt.v0.y, wt.v1.y, wt.v2.y);
+    const maxY = Math.max(wt.v0.y, wt.v1.y, wt.v2.y);
+
+    const minIdx = getGridIndices(new THREE.Vector2(minX, minY));
+    const maxIdx = getGridIndices(new THREE.Vector2(maxX, maxY));
+
+    for (let cx = minIdx.cx; cx <= maxIdx.cx; cx++) {
+      for (let cy = minIdx.cy; cy <= maxIdx.cy; cy++) {
+        triGrid[cx][cy].push(i);
+      }
+    }
+  }
+
+  const testPointInDomain = (px: number, py: number) => {
+    const { cx, cy } = getGridIndices(new THREE.Vector2(px, py));
+    const bIndices = triGrid[cx][cy];
+
+    let bestZ = -Infinity;
+    let bestResult: {
+      wt: typeof warpedTriangles[0];
+      u: number;
+      v: number;
+      w: number;
+    } | null = null;
+
+    for (const idx of bIndices) {
+      const wt = warpedTriangles[idx];
+      const res = pointInTriangle2D(px, py, wt.v0.x, wt.v0.y, wt.v1.x, wt.v1.y, wt.v2.x, wt.v2.y);
+      if (res.in) {
+        const z = wt.tri.v0.z * res.w + wt.tri.v1.z * res.v + wt.tri.v2.z * res.u;
+        if (z > bestZ) {
+          bestZ = z;
+          bestResult = { wt, u: res.u, v: res.v, w: res.w };
+        }
+      }
+    }
+    return bestResult;
+  };
+
+  // Bridson's Poisson Disc Sampler in 2D warped space
+  const cellSize = r / Math.sqrt(2);
+  const pCols = Math.ceil((maxWarped.x - minWarped.x) / cellSize) || 1;
+  const pRows = Math.ceil((maxWarped.y - minWarped.y) / cellSize) || 1;
+  const pGrid: (THREE.Vector2 | null)[][] = Array.from({ length: pCols }, () =>
+    Array.from({ length: pRows }, () => null)
+  );
+
+  const getPGridIndices = (pv: THREE.Vector2) => {
+    const cx = Math.max(0, Math.min(pCols - 1, Math.floor((pv.x - minWarped.x) / cellSize)));
+    const cy = Math.max(0, Math.min(pRows - 1, Math.floor((pv.y - minWarped.y) / cellSize)));
+    return { cx, cy };
+  };
+
+  const sampledWarpedPoints: {
+    pos: THREE.Vector2;
+    wt: typeof warpedTriangles[0];
+    u: number;
+    v: number;
+    w: number;
+  }[] = [];
+  const unwarpedPoints: BasicSampledPoint[] = [];
+  const activeList: number[] = [];
+
+  let seedPoint: THREE.Vector2 | null = null;
+  let seedWt: typeof warpedTriangles[0] | null = null;
+  let seedU = 0, seedV = 0, seedW = 0;
+
+  for (const wt of warpedTriangles) {
+    const cx = (wt.v0.x + wt.v1.x + wt.v2.x) / 3;
+    const cy = (wt.v0.y + wt.v1.y + wt.v2.y) / 3;
+    const domainTest = testPointInDomain(cx, cy);
+    if (domainTest) {
+      seedPoint = new THREE.Vector2(cx, cy);
+      seedWt = domainTest.wt;
+      seedU = domainTest.u;
+      seedV = domainTest.v;
+      seedW = domainTest.w;
+      break;
+    }
+  }
+
+  if (!seedPoint && warpedTriangles.length > 0) {
+    const wt = warpedTriangles[0];
+    const cx = wt.v0.x + 1e-4 * (wt.v1.x - wt.v0.x);
+    const cy = wt.v0.y + 1e-4 * (wt.v1.y - wt.v0.y);
+    const domainTest = testPointInDomain(cx, cy);
+    if (domainTest) {
+      seedPoint = new THREE.Vector2(cx, cy);
+      seedWt = domainTest.wt;
+      seedU = domainTest.u;
+      seedV = domainTest.v;
+      seedW = domainTest.w;
+    }
+  }
+
+  if (seedPoint && seedWt) {
+    sampledWarpedPoints.push({ pos: seedPoint, wt: seedWt, u: seedU, v: seedV, w: seedW });
+
+    const tri = seedWt.tri;
+    const px = tri.v0.x * seedW + tri.v1.x * seedV + tri.v2.x * seedU;
+    const py = tri.v0.y * seedW + tri.v1.y * seedV + tri.v2.y * seedU;
+    const pz = tri.v0.z * seedW + tri.v1.z * seedV + tri.v2.z * seedU;
+    unwarpedPoints.push({
+      pos: new THREE.Vector3(px, py, pz),
+      normal: tri.normal.clone(),
+    });
+
+    const { cx, cy } = getPGridIndices(seedPoint);
+    pGrid[cx][cy] = seedPoint;
+    activeList.push(0);
+  }
+
+  const k = 30;
+
+  while (activeList.length > 0) {
+    const randIdx = Math.floor(Math.random() * activeList.length);
+    const activeIdx = activeList[randIdx];
+    const activePt = sampledWarpedPoints[activeIdx];
+
+    let found = false;
+    for (let attempt = 0; attempt < k; attempt++) {
+      const angle = Math.random() * 2 * Math.PI;
+      const radius = r + Math.random() * r;
+      const candidateX = activePt.pos.x + radius * Math.cos(angle);
+      const candidateY = activePt.pos.y + radius * Math.sin(angle);
+
+      const domainTest = testPointInDomain(candidateX, candidateY);
+      if (!domainTest) continue;
+
+      const candidatePos = new THREE.Vector2(candidateX, candidateY);
+
+      const { cx, cy } = getPGridIndices(candidatePos);
+      let tooCloseWarped = false;
+
+      for (let dx = -2; dx <= 2 && !tooCloseWarped; dx++) {
+        for (let dy = -2; dy <= 2 && !tooCloseWarped; dy++) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx >= 0 && nx < pCols && ny >= 0 && ny < pRows) {
+            const neighbor = pGrid[nx][ny];
+            if (neighbor && neighbor.distanceTo(candidatePos) < r) {
+              tooCloseWarped = true;
+            }
+          }
+        }
+      }
+
+      if (tooCloseWarped) continue;
+
+      const tri = domainTest.wt.tri;
+      const px = tri.v0.x * domainTest.w + tri.v1.x * domainTest.v + tri.v2.x * domainTest.u;
+      const py = tri.v0.y * domainTest.w + tri.v1.y * domainTest.v + tri.v2.y * domainTest.u;
+      const pz = tri.v0.z * domainTest.w + tri.v1.z * domainTest.v + tri.v2.z * domainTest.u;
+      const candidate3D = new THREE.Vector3(px, py, pz);
+
+      const minAllowed = calculateZHeightDensitySpacing(pz, minZ, maxZ, op as any, opTrunkWidth);
+      let tooClosePhysical = false;
+
+      for (const accepted of unwarpedPoints) {
+        if (candidate3D.distanceTo(accepted.pos) < minAllowed) {
+          tooClosePhysical = true;
+          break;
+        }
+      }
+
+      if (!tooClosePhysical) {
+        const newIdx = sampledWarpedPoints.length;
+        sampledWarpedPoints.push({
+          pos: candidatePos,
+          wt: domainTest.wt,
+          u: domainTest.u,
+          v: domainTest.v,
+          w: domainTest.w
+        });
+        unwarpedPoints.push({
+          pos: candidate3D,
+          normal: tri.normal.clone(),
+        });
+        pGrid[cx][cy] = candidatePos;
+        activeList.push(newIdx);
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      activeList.splice(randIdx, 1);
+    }
+  }
+
+  return unwarpedPoints;
 }
 
 export function solvePerimeterWithInflections(
@@ -1913,6 +2182,30 @@ export async function generateSupportsFromPainter(
                   });
                 }
               }
+            }
+          } else if (pattern === 'PoissonDisc') {
+            const preset = stage.supportPresetId ? getPresetById(stage.supportPresetId) : undefined;
+            const opTrunkWidth = preset ? preset.settings.shaft.diameterMm : getSettings().shaft.diameterMm;
+
+            const results3D = samplePoissonDiscWarped(
+              region,
+              regionMinZ,
+              regionMaxZ,
+              stage as any,
+              triangles,
+              opTrunkWidth
+            );
+
+            for (const pt of results3D) {
+              candidates.push({
+                pos: pt.pos,
+                normal: pt.normal,
+                regionId: region.id,
+                regionType: region.brushType,
+                regionTriCount: region.triangleIds.size,
+                stage: 'infill',
+                supportPresetId: stage.supportPresetId,
+              });
             }
           } else {
             const startX = useSeeding ? offsetX + Math.ceil((minXY.x - offsetX) / spacing) * spacing : minXY.x + spacing / 2;
