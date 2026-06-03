@@ -45,6 +45,10 @@ pub struct HollowOptions {
     pub open_face: OpenFace,
     pub drain_holes: Vec<DrainHoleSpec>,
     pub preview_cavity_only: bool,
+    pub smooth_internal_surfaces: bool,
+    /// Number of voxel chamfer passes to run on internal cavity boundaries.
+    /// 0 disables chamfering, 1-2 progressively bevel 90° steps toward ~45° ramps.
+    pub internal_chamfer_passes: u8,
 }
 
 impl Default for HollowOptions {
@@ -56,6 +60,8 @@ impl Default for HollowOptions {
             open_face: OpenFace::ZMax,
             drain_holes: Vec::new(),
             preview_cavity_only: false,
+            smooth_internal_surfaces: true,
+            internal_chamfer_passes: 1,
         }
     }
 }
@@ -430,9 +436,23 @@ pub fn hollow_voxel(mesh: IndexedMesh, options: &HollowOptions) -> HollowOutcome
         }
     }
 
+    // Optional voxel-level chamfering on cavity boundaries to turn hard
+    // orthogonal internal steps into printable ~45° transitions.
+    if options.internal_chamfer_passes > 0 {
+        let max_passes = (shell_voxels.max(1) as u8).min(2);
+        let passes = options.internal_chamfer_passes.min(max_passes);
+        for _ in 0..passes {
+            apply_internal_cavity_chamfer_pass(&grid, &solid, &mut keep, &dist);
+        }
+    }
+
     let removed_voxels = occupied_voxels.saturating_sub(keep.iter().filter(|v| **v).count());
 
-    let cavity_mesh = voxel_cavity_boundary_mesh(&grid, &solid, &keep);
+    let cavity_mesh = smooth_cavity_mesh(
+        voxel_cavity_boundary_mesh(&grid, &solid, &keep),
+        voxel_mm,
+        options.smooth_internal_surfaces,
+    );
     let out_mesh = if options.preview_cavity_only {
         cavity_mesh
     } else {
@@ -550,6 +570,173 @@ fn voxel_cavity_boundary_mesh(grid: &GridSpec, solid: &[bool], keep: &[bool]) ->
     }
 
     IndexedMesh::from_triangle_soup(&soup, 1e-6)
+}
+
+fn smooth_cavity_mesh(mesh: IndexedMesh, voxel_mm: f32, enabled: bool) -> IndexedMesh {
+    if !enabled || mesh.positions.len() < 4 || mesh.triangles.is_empty() {
+        return mesh;
+    }
+
+    let vertex_count = mesh.positions.len();
+    let mut neighbors: Vec<Vec<usize>> = vec![Vec::new(); vertex_count];
+    let mut edge_counts: std::collections::HashMap<(u32, u32), u8> =
+        std::collections::HashMap::with_capacity(mesh.triangles.len() * 2);
+
+    let mut add_edge = |a: u32, b: u32| {
+        let ai = a as usize;
+        let bi = b as usize;
+        neighbors[ai].push(bi);
+        neighbors[bi].push(ai);
+
+        let key = if a < b { (a, b) } else { (b, a) };
+        let entry = edge_counts.entry(key).or_insert(0);
+        *entry = entry.saturating_add(1);
+    };
+
+    for tri in &mesh.triangles {
+        let [a, b, c] = *tri;
+        if a == b || b == c || c == a {
+            continue;
+        }
+        add_edge(a, b);
+        add_edge(b, c);
+        add_edge(c, a);
+    }
+
+    for ring in &mut neighbors {
+        ring.sort_unstable();
+        ring.dedup();
+    }
+
+    let mut boundary_vertex = vec![false; vertex_count];
+    for ((a, b), count) in edge_counts {
+        if count == 1 {
+            boundary_vertex[a as usize] = true;
+            boundary_vertex[b as usize] = true;
+        }
+    }
+
+    // Taubin smoothing (lambda / mu) to reduce voxel stair-stepping while
+    // preserving volume better than pure Laplacian smoothing.
+    // Lock boundary vertices to preserve opening rims/cut contours where the
+    // cavity mesh meets preserved source shell triangles.
+    let mut positions = mesh.positions.clone();
+    let iterations = 6usize;
+    let max_step = (voxel_mm * 0.42).max(0.01);
+
+    for _ in 0..iterations {
+        taubin_pass(&mut positions, &neighbors, &boundary_vertex, 0.34, max_step);
+        taubin_pass(
+            &mut positions,
+            &neighbors,
+            &boundary_vertex,
+            -0.36,
+            max_step,
+        );
+    }
+
+    let mut out = mesh;
+    out.positions = positions;
+    out
+}
+
+fn apply_internal_cavity_chamfer_pass(
+    grid: &GridSpec,
+    solid: &[bool],
+    keep: &mut [bool],
+    dist: &[i32],
+) {
+    let mut carve = vec![false; keep.len()];
+
+    for z in 0..grid.nz {
+        for y in 0..grid.ny {
+            for x in 0..grid.nx {
+                let i = grid.idx(x, y, z);
+                if !keep[i] || !solid[i] {
+                    continue;
+                }
+
+                // Preserve outer shell margin: only bevel deeper shell voxels.
+                if dist[i] <= 1 {
+                    continue;
+                }
+
+                let mut cavity_x = false;
+                let mut cavity_y = false;
+                let mut cavity_z = false;
+
+                for (dx, dy, dz) in N6 {
+                    let nx_i = x as isize + dx;
+                    let ny_i = y as isize + dy;
+                    let nz_i = z as isize + dz;
+                    if !grid.in_bounds(nx_i, ny_i, nz_i) {
+                        continue;
+                    }
+
+                    let ni = grid.idx(nx_i as usize, ny_i as usize, nz_i as usize);
+                    if solid[ni] && !keep[ni] {
+                        if dx != 0 {
+                            cavity_x = true;
+                        }
+                        if dy != 0 {
+                            cavity_y = true;
+                        }
+                        if dz != 0 {
+                            cavity_z = true;
+                        }
+                    }
+                }
+
+                let axis_count = (cavity_x as u8) + (cavity_y as u8) + (cavity_z as u8);
+                if axis_count >= 2 {
+                    carve[i] = true;
+                }
+            }
+        }
+    }
+
+    for (i, should_carve) in carve.into_iter().enumerate() {
+        if should_carve {
+            keep[i] = false;
+        }
+    }
+}
+
+fn taubin_pass(
+    positions: &mut [Vec3],
+    neighbors: &[Vec<usize>],
+    boundary_vertex: &[bool],
+    weight: f32,
+    max_step: f32,
+) {
+    let prev = positions.to_vec();
+
+    for i in 0..positions.len() {
+        if boundary_vertex[i] {
+            continue;
+        }
+        let ring = &neighbors[i];
+        if ring.len() < 3 {
+            continue;
+        }
+
+        let mut centroid = Vec3::ZERO;
+        for &j in ring {
+            centroid = centroid.add(prev[j]);
+        }
+        centroid = centroid.scale(1.0 / ring.len() as f32);
+
+        let mut delta = centroid.sub(prev[i]).scale(weight);
+        let len = delta.length();
+        if len > max_step && len > 1e-8 {
+            delta = delta.scale(max_step / len);
+        }
+
+        let candidate = prev[i].add(delta);
+        if candidate.finite() {
+            positions[i] = candidate;
+        }
+    }
 }
 
 #[inline]
