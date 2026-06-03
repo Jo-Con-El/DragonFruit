@@ -1,0 +1,136 @@
+import * as THREE from 'three';
+
+type TauriInvoke = <T>(cmd: string, args?: Record<string, unknown> | ArrayBuffer | ArrayBufferView, opts?: { headers?: Record<string, string> }) => Promise<T>;
+
+interface TauriCoreModule {
+  invoke: TauriInvoke;
+}
+
+let tauriCorePromise: Promise<TauriCoreModule | null> | null = null;
+
+export type HollowMode = 'cavity' | 'shell_open_face';
+export type OpenFace = 'x_min' | 'x_max' | 'y_min' | 'y_max' | 'z_min' | 'z_max';
+
+export interface DrainHoleSpec {
+  centerNorm: [number, number, number];
+  radiusMm: number;
+  direction?: [number, number, number];
+  lengthMm?: number;
+}
+
+export interface HollowOptions {
+  mode: HollowMode;
+  voxelResolution: number;
+  shellThicknessMm: number;
+  openFace: OpenFace;
+  drainHoles: DrainHoleSpec[];
+  previewCavityOnly?: boolean;
+}
+
+export interface HollowReport {
+  mode: HollowMode;
+  voxelResolution: number;
+  shellThicknessMm: number;
+  sourceTriangleCount: number;
+  outputTriangleCount: number;
+  gridSize: [number, number, number];
+  occupiedVoxels: number;
+  shellVoxels: number;
+  removedVoxels: number;
+}
+
+export interface HollowResult {
+  report: HollowReport;
+  positions: Float32Array;
+}
+
+export function isTauriRuntime(): boolean {
+  if (typeof window === 'undefined') return false;
+  return '__TAURI_INTERNALS__' in window;
+}
+
+async function loadTauriCore(): Promise<TauriCoreModule | null> {
+  if (!isTauriRuntime()) return null;
+  if (!tauriCorePromise) {
+    tauriCorePromise = import('@tauri-apps/api/core')
+      .then((mod) => ({ invoke: mod.invoke as TauriInvoke }))
+      .catch(() => null);
+  }
+  return tauriCorePromise;
+}
+
+async function readStagedPositions(invoke: TauriInvoke): Promise<Float32Array> {
+  const bytes = await invoke<ArrayBuffer | Uint8Array | number[]>('mesh_repair_read_positions');
+  let u8: Uint8Array;
+  if (bytes instanceof ArrayBuffer) {
+    u8 = new Uint8Array(bytes);
+  } else if (bytes instanceof Uint8Array) {
+    u8 = bytes;
+  } else if (Array.isArray(bytes)) {
+    u8 = new Uint8Array(bytes);
+  } else {
+    throw new Error('mesh_repair_read_positions returned unexpected type');
+  }
+
+  const copy = new Uint8Array(u8.byteLength);
+  copy.set(u8);
+  return new Float32Array(copy.buffer);
+}
+
+function expandGeometryToTriangleSoup(geometry: THREE.BufferGeometry): Float32Array {
+  const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
+  const positions = posAttr.array as Float32Array;
+  const index = geometry.getIndex();
+
+  if (!index) {
+    if (positions instanceof Float32Array) return positions;
+    return new Float32Array(positions as unknown as ArrayLike<number>);
+  }
+
+  const indexArr = index.array as Uint16Array | Uint32Array;
+  const out = new Float32Array(indexArr.length * 3);
+  for (let i = 0; i < indexArr.length; i += 1) {
+    const vi = indexArr[i] * 3;
+    const oi = i * 3;
+    out[oi] = positions[vi];
+    out[oi + 1] = positions[vi + 1];
+    out[oi + 2] = positions[vi + 2];
+  }
+  return out;
+}
+
+export async function hollowFromGeometry(
+  geometry: THREE.BufferGeometry,
+  options: HollowOptions,
+): Promise<HollowResult | null> {
+  const core = await loadTauriCore();
+  if (!core) return null;
+
+  const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute | null;
+  if (!posAttr) throw new Error('hollowFromGeometry: geometry has no position attribute');
+
+  const soup = expandGeometryToTriangleSoup(geometry);
+  const bytes = new Uint8Array(soup.buffer, soup.byteOffset, soup.byteLength);
+
+  await core.invoke('stage_mesh_binary_set', bytes, {
+    headers: { 'Content-Type': 'application/octet-stream' },
+  });
+
+  const optionsJson = JSON.stringify(options);
+  const reportJson = await core.invoke<string>('mesh_hollow_staged', { optionsJson });
+  const report = JSON.parse(reportJson) as HollowReport;
+  const positions = await readStagedPositions(core.invoke);
+  return { report, positions };
+}
+
+export function applyHollowedPositions(geometry: THREE.BufferGeometry, positions: Float32Array): void {
+  geometry.setIndex(null);
+  const attrNames = Object.keys(geometry.attributes);
+  for (const name of attrNames) {
+    if (name !== 'position') geometry.deleteAttribute(name);
+  }
+  geometry.deleteAttribute('position');
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+}

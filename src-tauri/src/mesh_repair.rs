@@ -15,7 +15,8 @@
 use std::path::PathBuf;
 
 use dragonfruit_mesh_repair::{
-    analyze, classify_support_split, io, repair, IndexedMesh, RepairOptions,
+    analyze, classify_support_split, hollow_voxel, io, punch_cylinders, repair, HollowOptions,
+    HolePunchOptions, IndexedMesh, RepairOptions,
 };
 use serde::Deserialize;
 use tauri::ipc::Response;
@@ -75,6 +76,22 @@ fn parse_options(options_json: &str) -> RepairOptions {
     serde_json::from_str::<RepairOptionsDto>(options_json)
         .unwrap_or_default()
         .into()
+}
+
+fn parse_hollow_options(options_json: &str) -> HollowOptions {
+    if options_json.trim().is_empty() {
+        return HollowOptions::default();
+    }
+
+    serde_json::from_str::<HollowOptions>(options_json).unwrap_or_default()
+}
+
+fn parse_hole_punch_options(options_json: &str) -> HolePunchOptions {
+    if options_json.trim().is_empty() {
+        return HolePunchOptions::default();
+    }
+
+    serde_json::from_str::<HolePunchOptions>(options_json).unwrap_or_default()
 }
 
 #[tauri::command]
@@ -165,6 +182,41 @@ pub async fn mesh_analyze_staged() -> Result<String, String> {
     .await
     .map_err(|e| format!("analyze task panicked: {e}"))??;
     serde_json::to_string(&analysis).map_err(|e| format!("serialize analysis: {e}"))
+}
+
+/// Applies voxel hollowing to the current staged mesh.
+/// Replaces staged positions with the hollowed result and returns a JSON report.
+#[tauri::command]
+pub async fn mesh_hollow_staged(options_json: String) -> Result<String, String> {
+    let options = parse_hollow_options(&options_json);
+    let bytes = read_staging_bytes()?;
+    let (mesh, report) = tauri::async_runtime::spawn_blocking(move || {
+        let mesh = io::staged::load_positions_le(&bytes).map_err(|e| e.to_string())?;
+        let outcome = hollow_voxel(mesh, &options);
+        Ok::<_, String>((outcome.mesh, outcome.report))
+    })
+    .await
+    .map_err(|e| format!("hollow task panicked: {e}"))??;
+
+    replace_staging_with_mesh(&mesh)?;
+    serde_json::to_string(&report).map_err(|e| format!("serialize hollow report: {e}"))
+}
+
+/// Applies manual cylindrical hole punches to the current staged mesh.
+#[tauri::command]
+pub async fn mesh_punch_staged(options_json: String) -> Result<String, String> {
+    let options = parse_hole_punch_options(&options_json);
+    let bytes = read_staging_bytes()?;
+    let (mesh, report) = tauri::async_runtime::spawn_blocking(move || {
+        let mesh = io::staged::load_positions_le(&bytes).map_err(|e| e.to_string())?;
+        let outcome = punch_cylinders(mesh, &options);
+        Ok::<_, String>((outcome.mesh, outcome.report))
+    })
+    .await
+    .map_err(|e| format!("punch task panicked: {e}"))??;
+
+    replace_staging_with_mesh(&mesh)?;
+    serde_json::to_string(&report).map_err(|e| format!("serialize punch report: {e}"))
 }
 
 /// Returns the current staged positions buffer as raw little-endian bytes.

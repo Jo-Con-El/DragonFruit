@@ -145,6 +145,8 @@ function StlMeshComponent({
   isActiveModel,
   onSmoothingGeometryActivate,
   onSupportClick,
+  onHolePunchClick,
+  onHolePunchHover,
   onSupportHover,
   onActiveModelChange,
   disableRaycast,
@@ -201,6 +203,8 @@ function StlMeshComponent({
   isActiveModel?: boolean;
   onSmoothingGeometryActivate?: (geometry: THREE.BufferGeometry | null) => void;
   onSupportClick?: (hit: THREE.Intersection) => void;
+  onHolePunchClick?: (hit: THREE.Intersection) => void;
+  onHolePunchHover?: (hit: THREE.Intersection | null) => void;
   onSupportHover?: (hit: THREE.Intersection | null) => void;
   onActiveModelChange?: (id: string | null, options?: { selectionMode?: 'single' | 'toggle' | 'add' }) => void;
   disableRaycast?: boolean;
@@ -830,6 +834,26 @@ if (uDitherAmount > 0.0) {
             return;
           }
 
+          if (mode === 'prepare' && transformMode === 'hollowing' && onHolePunchClick) {
+            const firstIsGizmo = e.intersections[0]?.object.userData?.isGizmoHandle === true;
+            if (isGizmoHoverCategory || firstIsGizmo) {
+              return;
+            }
+
+            let clickHit: THREE.Intersection = e as unknown as THREE.Intersection;
+            if (
+              (clipUpper != null && e.point.z > clipUpper) ||
+              (clipLower != null && e.point.z < clipLower)
+            ) {
+              const fallback = findClipAwareHit(e.ray, e.object, clipLower, clipUpper, e.distance);
+              if (!fallback) return;
+              clickHit = fallback;
+            }
+            e.stopPropagation();
+            onHolePunchClick(clickHit);
+            return;
+          }
+
           // Prepare mode selection is handled on pointer-down for lower latency.
           if (mode === 'prepare') {
             // When transforming the already-active model, avoid consuming clicks so
@@ -888,6 +912,9 @@ if (uDitherAmount > 0.0) {
         }}
         onPointerMove={(e) => {
           if (isSupportShiftGesture(e)) {
+            if (mode === 'prepare' && transformMode === 'hollowing' && onHolePunchHover) {
+              onHolePunchHover(null);
+            }
             if (!hasExternalHoverSource) schedulePointerHover(false);
             onModelHoverPointChange?.(null);
             onModelHoverModelChange?.(null);
@@ -904,6 +931,9 @@ if (uDitherAmount > 0.0) {
           // the model in the ray should not suppress model hover.
           const firstIsGizmo = e.intersections[0]?.object.userData?.isGizmoHandle === true;
           if (shouldSuppressModelInteraction || isGizmoHoverCategory || firstIsGizmo) {
+            if (mode === 'prepare' && transformMode === 'hollowing' && onHolePunchHover) {
+              onHolePunchHover(null);
+            }
             if (!hasExternalHoverSource) schedulePointerHover(false);
             onModelHoverPointChange?.(null);
             onModelHoverModelChange?.(null);
@@ -913,6 +943,9 @@ if (uDitherAmount > 0.0) {
 
           const isTopMostIntersection = e.intersections[0]?.object === e.object;
           if (!isTopMostIntersection) {
+            if (mode === 'prepare' && transformMode === 'hollowing' && onHolePunchHover) {
+              onHolePunchHover(null);
+            }
             if (!hasExternalHoverSource) schedulePointerHover(false);
             return;
           }
@@ -939,6 +972,9 @@ if (uDitherAmount > 0.0) {
           if (propagateForNonModel && !primaryInClippedZone) {
             // Non-model is visible but model hit is in visible zone — suppress
             // model hover and don't consume the event.
+            if (mode === 'prepare' && transformMode === 'hollowing' && onHolePunchHover) {
+              onHolePunchHover(null);
+            }
             if (!hasExternalHoverSource) schedulePointerHover(false);
             onModelHoverPointChange?.(null);
             onModelHoverModelChange?.(null);
@@ -967,6 +1003,15 @@ if (uDitherAmount > 0.0) {
             onModelHoverPointChange?.(e.point.clone());
             onModelHoverModelChange?.(modelId);
             emitImmediateModelHover(modelId);
+          }
+
+          if (mode === 'prepare' && transformMode === 'hollowing' && onHolePunchHover) {
+            let hoverHit: THREE.Intersection | null = e as unknown as THREE.Intersection;
+            if (primaryInClippedZone) {
+              const fallback = findClipAwareHit(e.ray, e.object, clipLower, clipUpper, e.distance);
+              hoverHit = fallback ?? null;
+            }
+            onHolePunchHover(hoverHit);
           }
 
           if (mode === 'prepare' && transformMode === 'smoothing' && isActiveModel) {
@@ -1040,6 +1085,10 @@ if (uDitherAmount > 0.0) {
           onModelHoverPointChange?.(null);
           onModelHoverModelChange?.(null);
           emitImmediateModelHover(null);
+
+          if (mode === 'prepare' && transformMode === 'hollowing' && onHolePunchHover) {
+            onHolePunchHover(null);
+          }
 
           if (mode === 'prepare' && transformMode === 'smoothing' && isActiveModel) {
             setMeshSmoothingHover(null, null);

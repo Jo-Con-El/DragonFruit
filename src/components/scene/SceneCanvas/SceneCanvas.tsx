@@ -355,6 +355,8 @@ export function SceneCanvas({
   showIslandIdLabels,
   mode,
   onSupportClick,
+  onHolePunchClick,
+  onHolePunchHover,
   onSupportHover,
   onActiveModelChange,
   onMarqueeSelectionChange,
@@ -482,6 +484,8 @@ export function SceneCanvas({
   showIslandIdLabels?: boolean;
   mode?: SupportMode;
   onSupportClick?: (hit: THREE.Intersection) => void;
+  onHolePunchClick?: (hit: THREE.Intersection) => void;
+  onHolePunchHover?: (hit: THREE.Intersection | null) => void;
   onSupportHover?: (hit: THREE.Intersection | null) => void;
   onActiveModelChange?: (id: string | null, options?: { selectionMode?: 'single' | 'toggle' | 'add' }) => void;
   onMarqueeSelectionChange?: (ids: string[]) => void;
@@ -5186,6 +5190,8 @@ export function SceneCanvas({
                         && (isGizmoDragging || isPostGizmoInteractionGuardActive)
                       }
                       supportSectionGeometry={model.geometry.meshDefects?.supportSectionGeometry ?? null}
+                      onHolePunchClick={onHolePunchClick}
+                      onHolePunchHover={onHolePunchHover}
                     >
                       {useActiveModelAttachedSupportProxy && isActive && (
                         <group
