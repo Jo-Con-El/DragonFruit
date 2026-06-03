@@ -704,6 +704,7 @@ type MaterialAntiAliasingSectionProps = {
   draft: MaterialDraft;
   onChange: React.Dispatch<React.SetStateAction<MaterialDraft>>;
   lockActivationToggles?: boolean;
+  printerDitherBitDepth?: number | null;
 };
 
 const AA_STRENGTH_PRESETS = [4, 8, 16, 32] as const;
@@ -861,7 +862,7 @@ function AaInlineHelp({ children }: { children: React.ReactNode }) {
   return <p className="text-[11px] leading-snug" style={{ color: 'var(--text-muted)' }}>{children}</p>;
 }
 
-export function MaterialAntiAliasingSection({ draft, onChange, lockActivationToggles = false }: MaterialAntiAliasingSectionProps) {
+export function MaterialAntiAliasingSection({ draft, onChange, lockActivationToggles = false, printerDitherBitDepth = null }: MaterialAntiAliasingSectionProps) {
   const settings = {
     ...DEFAULT_MATERIAL_ANTI_ALIASING_SETTINGS,
     ...(draft.antiAliasingSettings ?? {}),
@@ -877,6 +878,15 @@ export function MaterialAntiAliasingSection({ draft, onChange, lockActivationTog
   const duplicateZEnabled = is3daa && sampleSteps >= 16;
   const customZBlurEnabled = is3daa && settings.useCustomZBlurRadius;
   const gaussianZEnabled = customZBlurEnabled && settings.zBlurKernel === 'gaussian' && settings.zBlurRadiusLayers > 0;
+  const hasKnownPrinterDitherBitDepth = Number.isFinite(printerDitherBitDepth)
+    && printerDitherBitDepth != null
+    && printerDitherBitDepth >= 2
+    && printerDitherBitDepth <= 7;
+  const knownPrinterBitDepth = hasKnownPrinterDitherBitDepth
+    ? Math.round(printerDitherBitDepth as number)
+    : null;
+  const isNon8BitPrinter = knownPrinterBitDepth != null && knownPrinterBitDepth !== 8;
+  const effectiveDitherEnabled = isNon8BitPrinter ? true : settings.ditherEnabled;
   const [savedCurves, setSavedCurves] = React.useState<SavedCurve[]>(() => resolveMaterialAaSavedCurves());
   const [editingTarget, setEditingTarget] = React.useState<string | null>(null);
 
@@ -937,6 +947,7 @@ export function MaterialAntiAliasingSection({ draft, onChange, lockActivationTog
               updateAaSettings({
                 enableCustomSettings: next,
                 enableOverride: next ? overrideEnabled : false,
+                ditherEnabled: next && isNon8BitPrinter ? true : settings.ditherEnabled,
               });
             }}
             className="ui-input w-full h-[36px] px-2.5 leading-tight text-sm inline-flex items-center justify-between disabled:cursor-not-allowed disabled:opacity-45"
@@ -1341,56 +1352,28 @@ export function MaterialAntiAliasingSection({ draft, onChange, lockActivationTog
             title="Grayscale Dithering"
             description="Floyd-Steinberg energy-based dithering maps intermediate gray values to high-frequency spatial patterns, preventing color banding on gradient slopes."
           >
-            <div className="grid grid-cols-1 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-end">
               <LabeledToggleInput
                 label="Enable Dithering"
-                helpText="Enable energy-based dithering to eliminate banding on shallow slopes."
-                checked={settings.ditherEnabled}
-                onChange={(value) => updateAaSettings({ ditherEnabled: value })}
+                helpText={isNon8BitPrinter
+                  ? `Automatically enabled for this printer because its LCD is ${knownPrinterBitDepth}-bit. Dithering bit depth is derived from the active printer profile.`
+                  : 'Enable energy-based dithering to eliminate banding on shallow slopes. Dithering bit depth is derived from the active printer profile.'}
+                checked={effectiveDitherEnabled}
+                disabled={isNon8BitPrinter}
+                onChange={(value) => {
+                  if (isNon8BitPrinter) return;
+                  updateAaSettings({ ditherEnabled: value });
+                }}
               />
-              {settings.ditherEnabled && (
-                <>
-                  <div className="space-y-1 block">
-                    <span className="ui-label font-medium inline-flex items-center gap-1.5">
-                      Bit Depth Presets
-                      <AaHelpIcon label="Bit Depth" text="Target bit depth for spatial dithering. 3-bit matches 8 gray levels, 4-bit matches 16 levels." />
-                    </span>
-                    <div className="flex gap-1.5 mt-1">
-                      <PresetButton
-                        active={settings.ditherBitDepth === 3}
-                        onClick={() => updateAaSettings({ ditherBitDepth: 3 })}
-                      >
-                        3-bit (8 levels)
-                      </PresetButton>
-                      <PresetButton
-                        active={settings.ditherBitDepth === 4}
-                        onClick={() => updateAaSettings({ ditherBitDepth: 4 })}
-                      >
-                        4-bit (16 levels)
-                      </PresetButton>
-                      <PresetButton
-                        active={settings.ditherBitDepth !== 3 && settings.ditherBitDepth !== 4}
-                        onClick={() => updateAaSettings({ ditherBitDepth: 5 })}
-                      >
-                        Custom
-                      </PresetButton>
-                    </div>
-                  </div>
-                  {settings.ditherBitDepth !== 3 && settings.ditherBitDepth !== 4 && (
-                    <LabeledNumberInput
-                      label="Custom Bit Depth"
-                      helpText="Bit depth for dithering, clamped between 2 and 7 bits."
-                      value={settings.ditherBitDepth}
-                      onChange={(value) => updateAaSettings({ ditherBitDepth: Math.max(2, Math.min(7, Math.round(value))) })}
-                    />
-                  )}
-                  <LabeledNumberInput
-                    label="Device Gamma"
-                    helpText="Gamma value of the printer LCD panel. Corrects dithering intensity to match physical light projection."
-                    value={settings.ditherDeviceGamma}
-                    onChange={(value) => updateAaSettings({ ditherDeviceGamma: clampAaNumber(value, 3.0, 0.5, 4.0) })}
-                  />
-                </>
+              {effectiveDitherEnabled && (
+                <LabeledNumberInput
+                  label="Device Gamma"
+                  helpText={knownPrinterBitDepth != null
+                    ? `Gamma value of the printer LCD panel. Corrects dithering intensity to match physical light projection. Bit depth is taken from the active printer profile (${knownPrinterBitDepth}-bit).`
+                    : 'Gamma value of the printer LCD panel. Corrects dithering intensity to match physical light projection. Bit depth is taken from the active printer profile.'}
+                  value={settings.ditherDeviceGamma}
+                  onChange={(value) => updateAaSettings({ ditherDeviceGamma: clampAaNumber(value, 3.0, 0.5, 4.0) })}
+                />
               )}
             </div>
           </AaCard>
@@ -2277,6 +2260,7 @@ type ReplacementMaterialEditorShellProps = {
   onActiveTabChange: (tabId: string) => void;
   draft: MaterialDraft;
   onDraftChange: React.Dispatch<React.SetStateAction<MaterialDraft>>;
+  printerDitherBitDepth?: number | null;
   activeTabStyle?: React.CSSProperties;
   outputFormat: string;
   settingsMode?: string;
@@ -2291,6 +2275,7 @@ export function ReplacementMaterialEditorShell({
   onActiveTabChange,
   draft,
   onDraftChange,
+  printerDitherBitDepth = null,
   outputFormat,
   activeTabStyle,
   settingsMode,
@@ -2307,7 +2292,13 @@ export function ReplacementMaterialEditorShell({
     }
 
     if (tabId === 'anti-aliasing') {
-      return <MaterialAntiAliasingSection draft={draft} onChange={onDraftChange} />;
+      return (
+        <MaterialAntiAliasingSection
+          draft={draft}
+          onChange={onDraftChange}
+          printerDitherBitDepth={printerDitherBitDepth}
+        />
+      );
     }
 
     return (
@@ -2322,7 +2313,7 @@ export function ReplacementMaterialEditorShell({
         showTabBar={false}
       />
     );
-  }, [adapter, draft, localSettingsByOutput, onDraftChange, onLocalSettingsByOutputChange, outputFormat, settingsMode]);
+  }, [adapter, draft, localSettingsByOutput, onDraftChange, onLocalSettingsByOutputChange, outputFormat, printerDitherBitDepth, settingsMode]);
 
   React.useLayoutEffect(() => {
     const root = measureRootRef.current;

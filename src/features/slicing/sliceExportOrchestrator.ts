@@ -432,6 +432,36 @@ function mergeMetadataOverridesIntoMetadata(
   }
 }
 
+function resolveEffectiveDitherPolicy(options: SliceExportOrchestratorOptions): {
+  ditherEnabled: boolean;
+  ditherBitDepth: number;
+  ditherDeviceGamma: number;
+} {
+  const materialDitherEnabled = options.materialProfile.antiAliasingSettings?.ditherEnabled ?? false;
+  const materialDitherBitDepth = options.materialProfile.antiAliasingSettings?.ditherBitDepth ?? 3;
+  const materialDitherGamma = options.materialProfile.antiAliasingSettings?.ditherDeviceGamma ?? 3.0;
+
+  const configuredDitherEnabled = options.ditherEnabled ?? materialDitherEnabled;
+  const configuredDitherBitDepth = options.ditherBitDepth ?? materialDitherBitDepth;
+  const configuredDitherGamma = options.ditherDeviceGamma ?? materialDitherGamma;
+
+  const printerBitDepthRaw = Number(options.printerProfile.bitDepth?.bits);
+  const printerBitDepth = Number.isFinite(printerBitDepthRaw)
+    ? Math.round(printerBitDepthRaw)
+    : null;
+
+  const hasKnownNon8BitDisplay = printerBitDepth != null && printerBitDepth > 0 && printerBitDepth !== 8;
+  const derivedBitDepth = (printerBitDepth != null && printerBitDepth > 0)
+    ? Math.max(2, Math.min(7, printerBitDepth))
+    : Math.max(2, Math.min(7, Math.round(configuredDitherBitDepth)));
+
+  return {
+    ditherEnabled: hasKnownNon8BitDisplay ? true : configuredDitherEnabled,
+    ditherBitDepth: derivedBitDepth,
+    ditherDeviceGamma: Math.max(0.5, Math.min(4.0, Number(configuredDitherGamma))),
+  };
+}
+
 /**
  * Orchestrates export via DragonFruit Desktop native slicer.
  */
@@ -663,6 +693,8 @@ export async function runSliceExportOrchestrator(options: SliceExportOrchestrato
     format.layerDataKind === 'png',
   );
 
+  const effectiveDitherPolicy = resolveEffectiveDitherPolicy(options);
+
   const nativeJob = {
     outputFormat: format.outputFormat,
     formatVersion: resolveOutputFormatVersion(
@@ -711,9 +743,9 @@ export async function runSliceExportOrchestrator(options: SliceExportOrchestrato
     ),
     mirrorX: solidMesh.mirrorX,
     mirrorY: solidMesh.mirrorY,
-    ditherEnabled: options.ditherEnabled ?? options.materialProfile.antiAliasingSettings?.ditherEnabled ?? false,
-    ditherBitDepth: options.ditherBitDepth ?? options.materialProfile.antiAliasingSettings?.ditherBitDepth ?? 3,
-    ditherDeviceGamma: options.ditherDeviceGamma ?? options.materialProfile.antiAliasingSettings?.ditherDeviceGamma ?? 3.0,
+    ditherEnabled: effectiveDitherPolicy.ditherEnabled,
+    ditherBitDepth: effectiveDitherPolicy.ditherBitDepth,
+    ditherDeviceGamma: effectiveDitherPolicy.ditherDeviceGamma,
     modelTriangleCount: solidMesh.modelTriangleCount,
     containerCompressionLevel: resolveContainerCompressionLevel(resolvedPngStrategy),
     buildWidthMm: solidMesh.buildWidthMm,

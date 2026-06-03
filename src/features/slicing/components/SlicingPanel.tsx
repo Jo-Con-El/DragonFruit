@@ -1140,6 +1140,23 @@ export function SlicingPanel({
   );
   // Respect printer-profile capability: explicit `false` means AA must be disabled.
   const antiAliasingAvailable = activePrinterProfile != null && activePrinterProfile.antiAliasing !== false;
+  const printerDitherBitDepth = useMemo<number | null>(() => {
+    const printerBitDepth = Number(activePrinterProfile?.bitDepth?.bits);
+    if (!Number.isFinite(printerBitDepth) || printerBitDepth <= 0) {
+      return null;
+    }
+    return Math.max(2, Math.min(7, Math.round(printerBitDepth)));
+  }, [activePrinterProfile?.bitDepth?.bits]);
+  const autoDitherRequiredForPrinter = printerDitherBitDepth != null && printerDitherBitDepth !== 8;
+  const effectiveDitherEnabledForSlice = autoDitherRequiredForPrinter
+    ? true
+    : profileAntiAliasingSettings.ditherEnabled;
+  const effectiveDitherBitDepthForSlice = printerDitherBitDepth
+    ?? Math.max(2, Math.min(7, Math.round(profileAntiAliasingSettings.ditherBitDepth ?? 3)));
+  const effectiveDitherDeviceGammaForSlice = Math.max(
+    0.5,
+    Math.min(4.0, Number(profileAntiAliasingSettings.ditherDeviceGamma ?? 3.0)),
+  );
 
   const isRemoteMaterialSyncConnected = Boolean(networkUiAdapter) && !isRemoteNetworkUnavailable;
   const showRemoteOfflineLayerHeightOverride = Boolean(networkUiAdapter)
@@ -2144,9 +2161,9 @@ export function SlicingPanel({
         zaaKernel: effectiveZaaKernel,
         zaaPattern: effectiveZaaPattern,
         zaaDuplicateZ: effectiveZaaDuplicateZ,
-        ditherEnabled: profileAntiAliasingSettings.ditherEnabled,
-        ditherBitDepth: profileAntiAliasingSettings.ditherBitDepth,
-        ditherDeviceGamma: profileAntiAliasingSettings.ditherDeviceGamma,
+        ditherEnabled: effectiveDitherEnabledForSlice,
+        ditherBitDepth: effectiveDitherBitDepthForSlice,
+        ditherDeviceGamma: effectiveDitherDeviceGammaForSlice,
         minimumAaAlphaPercentOverride: shouldUseLutCurveForExport && effectiveAntiAliasingMode === 'Blur'
           ? 0
           : profileMinimumAaAlphaPercent,
@@ -3763,6 +3780,7 @@ export function SlicingPanel({
             <div className="p-3 overflow-y-auto custom-scrollbar flex-1">
               <MaterialAntiAliasingSection
                 draft={materialAaEditorDraft}
+                printerDitherBitDepth={printerDitherBitDepth}
                 onChange={(next) => {
                   setMaterialAaEditorDraft((current) => {
                     if (!current) return current;
@@ -3833,6 +3851,7 @@ export function SlicingPanel({
               <MaterialAntiAliasingSection
                 draft={editingSessionAaOverrideDraft}
                 lockActivationToggles
+                printerDitherBitDepth={printerDitherBitDepth}
                 onChange={(next) => {
                   setEditingSessionAaOverrideDraft((current) => {
                     if (!current) return current;

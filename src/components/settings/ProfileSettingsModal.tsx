@@ -531,6 +531,14 @@ export function ProfileSettingsModal({
     return profileState.printerProfiles.find((profile) => profile.id === selectedPrinterId) ?? fallback;
   }, [profileState, selectedPrinterId]);
 
+  const printerDitherBitDepth = React.useMemo<number | null>(() => {
+    const printerBitDepth = Number(selectedPrinter?.bitDepth?.bits);
+    if (!Number.isFinite(printerBitDepth) || printerBitDepth <= 0) {
+      return null;
+    }
+    return Math.max(2, Math.min(7, Math.round(printerBitDepth)));
+  }, [selectedPrinter?.bitDepth?.bits]);
+
   const selectedFormatVersionOptions = React.useMemo(() => {
     if (!selectedPrinter) return [] as Array<{ value: string; label: string; isDefault?: boolean }>;
     return getAvailableFormatVersionOptions(selectedPrinter.display.outputFormat);
@@ -4705,6 +4713,7 @@ export function ProfileSettingsModal({
                     activeTabStyle={accentSecondaryActionStyle92}
                     draft={editMaterialDraft}
                     onDraftChange={setEditMaterialDraft}
+                    printerDitherBitDepth={printerDitherBitDepth}
                     outputFormat={selectedPrinter?.display.outputFormat ?? '.lys'}
                     settingsMode={selectedResolvedSettingsMode}
                     adapter={selectedLocalMaterialSettingsAdapter}
@@ -4714,7 +4723,11 @@ export function ProfileSettingsModal({
                 ) : (
                   <>
                     <MaterialProfileFormSections draft={editMaterialDraft} onChange={setEditMaterialDraft} />
-                    <MaterialAntiAliasingSection draft={editMaterialDraft} onChange={setEditMaterialDraft} />
+                    <MaterialAntiAliasingSection
+                      draft={editMaterialDraft}
+                      onChange={setEditMaterialDraft}
+                      printerDitherBitDepth={printerDitherBitDepth}
+                    />
                     <PluginLocalMaterialSettingsSections
                       outputFormat={selectedPrinter?.display.outputFormat ?? '.lys'}
                       settingsMode={selectedResolvedSettingsMode}
@@ -5406,6 +5419,7 @@ export function ProfileSettingsModal({
                     activeTabStyle={accentSecondaryActionStyle92}
                     draft={newMaterialDraft}
                     onDraftChange={setNewMaterialDraft}
+                    printerDitherBitDepth={printerDitherBitDepth}
                     outputFormat={selectedPrinter.display.outputFormat}
                     settingsMode={selectedResolvedSettingsMode}
                     adapter={selectedLocalMaterialSettingsAdapter}
@@ -5415,7 +5429,11 @@ export function ProfileSettingsModal({
                 ) : (
                   <>
                     <MaterialProfileFormSections draft={newMaterialDraft} onChange={setNewMaterialDraft} />
-                    <MaterialAntiAliasingSection draft={newMaterialDraft} onChange={setNewMaterialDraft} />
+                    <MaterialAntiAliasingSection
+                      draft={newMaterialDraft}
+                      onChange={setNewMaterialDraft}
+                      printerDitherBitDepth={printerDitherBitDepth}
+                    />
                     <PluginLocalMaterialSettingsSections
                       outputFormat={selectedPrinter.display.outputFormat}
                       settingsMode={selectedResolvedSettingsMode}
