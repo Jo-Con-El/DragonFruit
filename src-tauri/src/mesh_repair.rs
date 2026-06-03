@@ -29,6 +29,8 @@ use crate::{
 
 static HOLLOW_PREVIEW_SOURCE_BYTES: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
 static HOLLOW_PREVIEW_RESULT_BYTES: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
+static PUNCH_SOURCE_BYTES: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
+static PUNCH_RESULT_BYTES: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
 
 fn hollow_preview_source_bytes() -> &'static Mutex<Option<Vec<u8>>> {
     HOLLOW_PREVIEW_SOURCE_BYTES.get_or_init(|| Mutex::new(None))
@@ -36,6 +38,14 @@ fn hollow_preview_source_bytes() -> &'static Mutex<Option<Vec<u8>>> {
 
 fn hollow_preview_result_bytes() -> &'static Mutex<Option<Vec<u8>>> {
     HOLLOW_PREVIEW_RESULT_BYTES.get_or_init(|| Mutex::new(None))
+}
+
+fn punch_source_bytes() -> &'static Mutex<Option<Vec<u8>>> {
+    PUNCH_SOURCE_BYTES.get_or_init(|| Mutex::new(None))
+}
+
+fn punch_result_bytes() -> &'static Mutex<Option<Vec<u8>>> {
+    PUNCH_RESULT_BYTES.get_or_init(|| Mutex::new(None))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -291,6 +301,64 @@ pub async fn mesh_punch_staged(options_json: String) -> Result<String, String> {
 
     replace_staging_with_mesh(&mesh)?;
     serde_json::to_string(&report).map_err(|e| format!("serialize punch report: {e}"))
+}
+
+/// Captures the current staged mesh bytes as the source for repeated
+/// non-mutating hole-punch runs.
+#[tauri::command]
+pub async fn mesh_punch_capture_staged_source() -> Result<(), String> {
+    let bytes = read_staging_bytes()?;
+    *punch_source_bytes()
+        .lock()
+        .map_err(|e| format!("punch source lock poisoned: {e}"))? = Some(bytes);
+    *punch_result_bytes()
+        .lock()
+        .map_err(|e| format!("punch result lock poisoned: {e}"))? = None;
+    Ok(())
+}
+
+/// Runs hole punching against the captured source mesh without mutating the
+/// regular staged mesh buffer.
+#[tauri::command]
+pub async fn mesh_punch_from_captured_source(options_json: String) -> Result<String, String> {
+    let options = parse_hole_punch_options(&options_json);
+    let source_bytes = punch_source_bytes()
+        .lock()
+        .map_err(|e| format!("punch source lock poisoned: {e}"))?
+        .clone()
+        .ok_or_else(|| {
+            "No captured punch source — call mesh_punch_capture_staged_source first".to_string()
+        })?;
+
+    let (positions_bytes, report) = tauri::async_runtime::spawn_blocking(move || {
+        let mesh = io::staged::load_positions_le(&source_bytes).map_err(|e| e.to_string())?;
+        let outcome = punch_cylinders(mesh, &options);
+        let soup = outcome.mesh.to_triangle_soup();
+        let bytes: Vec<u8> = bytemuck::cast_slice::<f32, u8>(&soup).to_vec();
+        Ok::<_, String>((bytes, outcome.report))
+    })
+    .await
+    .map_err(|e| format!("punch task panicked: {e}"))??;
+
+    *punch_result_bytes()
+        .lock()
+        .map_err(|e| format!("punch result lock poisoned: {e}"))? = Some(positions_bytes);
+
+    serde_json::to_string(&report).map_err(|e| format!("serialize punch report: {e}"))
+}
+
+/// Returns the most recent non-mutating punch result positions as raw
+/// little-endian bytes.
+#[tauri::command]
+pub async fn mesh_punch_read_positions() -> Result<Response, String> {
+    let bytes = punch_result_bytes()
+        .lock()
+        .map_err(|e| format!("punch result lock poisoned: {e}"))?
+        .clone()
+        .ok_or_else(|| {
+            "No punch result — call mesh_punch_from_captured_source first".to_string()
+        })?;
+    Ok(Response::new(bytes))
 }
 
 /// Returns the current staged positions buffer as raw little-endian bytes.

@@ -3256,6 +3256,9 @@ fn main() {
             mesh_repair::mesh_hollow_preview_from_captured_source,
             mesh_repair::mesh_hollow_preview_read_positions,
             mesh_repair::mesh_punch_staged,
+            mesh_repair::mesh_punch_capture_staged_source,
+            mesh_repair::mesh_punch_from_captured_source,
+            mesh_repair::mesh_punch_read_positions,
             mesh_repair::mesh_repair_read_positions
         ])
         .run(tauri::generate_context!())

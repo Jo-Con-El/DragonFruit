@@ -198,7 +198,11 @@ import {
   type HollowOptions,
   type HollowReport,
 } from '@/utils/meshHollowing';
-import { punchFromGeometry, type PunchOptions } from '@/utils/meshPunching';
+import {
+  punchFromCapturedSource,
+  stagePunchSource,
+  type PunchOptions,
+} from '@/utils/meshPunching';
 import type { ModelMeshModifiers, ModelHolePunchPlacement, ModelHollowingModifier } from '@/features/mesh-modifiers/types';
 
 interface ShaftHoverDebugDetail {
@@ -14939,6 +14943,7 @@ export default function Home() {
       }
 
       setIsApplyingHolePunch(true);
+      await sleep(0);
       try {
         let sourceGeometry: THREE.BufferGeometry;
         let ownsSourceGeometry = false;
@@ -15042,7 +15047,21 @@ export default function Home() {
           }),
         };
 
-        const result = await punchFromGeometry(sourceGeometry, punchOptions);
+        const punchSourceKey = activeModel.meshModifiers?.holePunchesBakedIntoGeometry
+          ? `${activeModel.id}::hole-source:${activeModel.meshModifiers?.holePunchSourcePositionCount ?? 0}:${activeModel.meshModifiers?.holePunchSourcePositionsBase64?.length ?? 0}`
+          : `${activeModel.id}::geom:${buildGeometryVersionKey(activeModel.geometry.geometry)}`;
+
+        const staged = await stagePunchSource(sourceGeometry, punchSourceKey);
+        if (!staged) {
+          if (ownsSourceGeometry) {
+            sourceGeometry.dispose();
+          }
+          setExportErrorToast({ id: Date.now(), text: 'Hole punching is available in DragonFruit Desktop only.' });
+          setIsExportErrorToastVisible(true);
+          return;
+        }
+
+        const result = await punchFromCapturedSource(punchOptions);
         if (!result) {
           if (ownsSourceGeometry) {
             sourceGeometry.dispose();
@@ -15090,7 +15109,7 @@ export default function Home() {
         setIsApplyingHolePunch(false);
       }
     })();
-  }, [activeHolePunchPlacements, persistActiveModelModifiers, scene]);
+  }, [activeHolePunchPlacements, persistActiveModelModifiers, scene, sleep]);
 
   const clearPendingHollowPreviewDebounce = React.useCallback(() => {
     if (hollowPreviewDebounceTimerRef.current !== null) {
