@@ -524,6 +524,72 @@ function geometryFromSnapshot(snapshot: {
   return geometry;
 }
 
+function getAbsSafeScaleComponents(scale: THREE.Vector3): THREE.Vector3 {
+  return new THREE.Vector3(
+    Math.max(1e-6, Math.abs(scale.x)),
+    Math.max(1e-6, Math.abs(scale.y)),
+    Math.max(1e-6, Math.abs(scale.z)),
+  );
+}
+
+function getDirectionScaleFactor(direction: THREE.Vector3, scale: THREE.Vector3): number {
+  const dir = direction.clone();
+  if (dir.lengthSq() <= 1e-12) {
+    dir.set(0, 0, -1);
+  } else {
+    dir.normalize();
+  }
+
+  const absScale = getAbsSafeScaleComponents(scale);
+  const scaledDir = new THREE.Vector3(
+    dir.x * absScale.x,
+    dir.y * absScale.y,
+    dir.z * absScale.z,
+  );
+  return Math.max(1e-6, scaledDir.length());
+}
+
+function getRadialScaleFactor(direction: THREE.Vector3, scale: THREE.Vector3): number {
+  const dir = direction.clone();
+  if (dir.lengthSq() <= 1e-12) {
+    dir.set(0, 0, -1);
+  } else {
+    dir.normalize();
+  }
+
+  const helper = Math.abs(dir.z) < 0.9
+    ? new THREE.Vector3(0, 0, 1)
+    : new THREE.Vector3(0, 1, 0);
+
+  const tangentA = helper.clone().cross(dir);
+  if (tangentA.lengthSq() <= 1e-12) {
+    tangentA.set(1, 0, 0);
+  } else {
+    tangentA.normalize();
+  }
+  const tangentB = dir.clone().cross(tangentA).normalize();
+
+  const absScale = getAbsSafeScaleComponents(scale);
+  const scaleAlong = (v: THREE.Vector3) => new THREE.Vector3(
+    v.x * absScale.x,
+    v.y * absScale.y,
+    v.z * absScale.z,
+  ).length();
+
+  const sA = scaleAlong(tangentA);
+  const sB = scaleAlong(tangentB);
+  return Math.max(1e-6, (sA + sB) * 0.5);
+}
+
+function getUniformScaleFactorForThickness(scale: THREE.Vector3): number {
+  const absScale = getAbsSafeScaleComponents(scale);
+  return Math.max(1e-6, (absScale.x + absScale.y + absScale.z) / 3);
+}
+
+function worldMmToLocalMm(worldMm: number, scaleFactor: number): number {
+  return Math.max(1e-4, worldMm / Math.max(1e-6, scaleFactor));
+}
+
 const EMPTY_HOME_SUPPORT_COLLECTIONS_SNAPSHOT: HomeSupportCollectionsSnapshot = {
   trunks: {},
   branches: {},
@@ -14505,10 +14571,11 @@ export default function Home() {
 
       setIsApplyingHollowing(true);
       try {
+        const shellScaleFactor = getUniformScaleFactorForThickness(activeModel.transform.scale);
         const options: HollowOptions = {
           mode: hollowingState.mode,
           voxelResolution: hollowingState.voxelResolution,
-          shellThicknessMm: hollowingState.shellThicknessMm,
+          shellThicknessMm: worldMmToLocalMm(hollowingState.shellThicknessMm, shellScaleFactor),
           openFace: hollowingState.openFace,
           drainHoles: [],
           previewCavityOnly: false,
@@ -14869,6 +14936,15 @@ export default function Home() {
               axis.normalize();
             }
 
+            const axisScaleFactor = getDirectionScaleFactor(axis, activeModel.transform.scale);
+            const radialScaleFactor = getRadialScaleFactor(axis, activeModel.transform.scale);
+            const localOutsideProtrusionMm = worldMmToLocalMm(
+              HOLE_PUNCH_OUTSIDE_PROTRUSION_MM,
+              axisScaleFactor,
+            );
+            const localDepthMm = worldMmToLocalMm(placement.depthMm, axisScaleFactor);
+            const localRadiusMm = worldMmToLocalMm(placement.radiusMm, radialScaleFactor);
+
             const surfaceCenterMm = new THREE.Vector3(
               toMm(placement.centerNorm[0], sourceBbox.min.x, sourceSize.x),
               toMm(placement.centerNorm[1], sourceBbox.min.y, sourceSize.y),
@@ -14879,7 +14955,7 @@ export default function Home() {
             // direction for lengthMm. Shift start slightly opposite axis so cut
             // spans outside protrusion + requested depth inside.
             const shiftedStartMm = surfaceCenterMm.clone().add(
-              axis.clone().multiplyScalar(-HOLE_PUNCH_OUTSIDE_PROTRUSION_MM),
+              axis.clone().multiplyScalar(-localOutsideProtrusionMm),
             );
 
             const shiftedStartNorm: [number, number, number] = [
@@ -14909,9 +14985,9 @@ export default function Home() {
 
             return {
               centerNorm: clampedStartNorm,
-              radiusMm: placement.radiusMm,
-              direction: placement.direction,
-              lengthMm: placement.depthMm + effectiveOutsideMm,
+              radiusMm: localRadiusMm,
+              direction: [axis.x, axis.y, axis.z] as [number, number, number],
+              lengthMm: localDepthMm + effectiveOutsideMm,
             };
           }),
         };
@@ -14973,10 +15049,13 @@ export default function Home() {
     }
   }, []);
 
-  const buildHollowingOptions = React.useCallback((): HollowOptions => ({
+  const buildHollowingOptions = React.useCallback((modelScale: THREE.Vector3): HollowOptions => ({
     mode: hollowingState.mode,
     voxelResolution: hollowingState.voxelResolution,
-    shellThicknessMm: hollowingState.shellThicknessMm,
+    shellThicknessMm: worldMmToLocalMm(
+      hollowingState.shellThicknessMm,
+      getUniformScaleFactorForThickness(modelScale),
+    ),
     openFace: hollowingState.openFace,
     drainHoles: [],
     previewCavityOnly: false,
@@ -15183,7 +15262,7 @@ export default function Home() {
     }
 
     const options: HollowOptions = {
-      ...buildHollowingOptions(),
+      ...buildHollowingOptions(activeModel.transform.scale),
       previewCavityOnly: true,
     };
     const optionsKey = JSON.stringify(options);
