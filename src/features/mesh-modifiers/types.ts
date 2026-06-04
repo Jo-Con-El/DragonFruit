@@ -10,6 +10,7 @@ export type ModelHollowingModifier = {
   voxelResolution: number;
   shellThicknessMm: number;
   openFace: MeshModifierOpenFace;
+  openFaceSelected?: boolean;
 };
 
 export type ModelHolePunchPlacement = {

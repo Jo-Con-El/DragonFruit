@@ -203,7 +203,12 @@ import {
   stagePunchSource,
   type PunchOptions,
 } from '@/utils/meshPunching';
-import type { ModelMeshModifiers, ModelHolePunchPlacement, ModelHollowingModifier } from '@/features/mesh-modifiers/types';
+import type {
+  ModelMeshModifiers,
+  ModelHolePunchPlacement,
+  ModelHollowingModifier,
+  MeshModifierOpenFace,
+} from '@/features/mesh-modifiers/types';
 
 interface ShaftHoverDebugDetail {
   segmentId: string | null;
@@ -429,7 +434,30 @@ function serializeHollowingModifier(modifier: ModelHollowingModifier | null | un
     voxelResolution: modifier.voxelResolution,
     shellThicknessMm: Number(modifier.shellThicknessMm.toFixed(4)),
     openFace: modifier.openFace,
+    openFaceSelected: modifier.mode === 'shell_open_face'
+      ? (modifier.openFaceSelected ?? true)
+      : true,
   });
+}
+
+function inferOpenFaceFromHit(
+  hit: THREE.Intersection,
+  fallback: MeshModifierOpenFace,
+): MeshModifierOpenFace {
+  const normal = hit.face?.normal;
+  if (!normal) return fallback;
+
+  const absX = Math.abs(normal.x);
+  const absY = Math.abs(normal.y);
+  const absZ = Math.abs(normal.z);
+
+  if (absX >= absY && absX >= absZ) {
+    return normal.x >= 0 ? 'x_max' : 'x_min';
+  }
+  if (absY >= absX && absY >= absZ) {
+    return normal.y >= 0 ? 'y_max' : 'y_min';
+  }
+  return normal.z >= 0 ? 'z_max' : 'z_min';
 }
 
 function serializeHolePunchPlacements(placements: ModelHolePunchPlacement[]): string {
@@ -1518,6 +1546,7 @@ export default function Home() {
     shellThicknessMm: 2.0,
     openFace: 'z_max',
   });
+  const [isShellOpenFaceSelected, setIsShellOpenFaceSelected] = React.useState(true);
   const [hollowingDraftEnabled, setHollowingDraftEnabled] = React.useState(false);
   const [holePunchState, setHolePunchState] = React.useState<HolePunchPanelState>({
     radiusMm: 2.0,
@@ -14649,6 +14678,12 @@ export default function Home() {
       const shouldApply = hollowingDraftEnabled || !persistedHollowing?.enabled;
       if (!shouldApply) return;
 
+      if (hollowingState.mode === 'shell_open_face' && !isShellOpenFaceSelected) {
+        setExportErrorToast({ id: Date.now(), text: 'Pick the face to open before applying Shell mode.' });
+        setIsExportErrorToastVisible(true);
+        return;
+      }
+
       const existingSource = hollowingSourceByModelIdRef.current.get(activeModel.id);
       const needsNewSource = !existingSource || !persistedHollowing?.enabled;
 
@@ -14674,9 +14709,12 @@ export default function Home() {
 
       setIsApplyingHollowing(true);
       try {
+        const effectiveHollowMode = hollowingState.mode === 'shell_open_face'
+          ? 'cavity'
+          : hollowingState.mode;
         const shellScaleFactor = getUniformScaleFactorForThickness(activeModel.transform.scale);
         const options: HollowOptions = {
-          mode: hollowingState.mode,
+          mode: effectiveHollowMode,
           voxelResolution: hollowingState.voxelResolution,
           shellThicknessMm: worldMmToLocalMm(hollowingState.shellThicknessMm, shellScaleFactor),
           openFace: hollowingState.openFace,
@@ -14719,10 +14757,13 @@ export default function Home() {
             bakedIntoGeometry: true,
             sourcePositionsBase64: sourceSnapshot.sourcePositionsBase64,
             sourcePositionCount: sourceSnapshot.sourcePositionCount,
-            mode: hollowingState.mode,
+            mode: effectiveHollowMode,
             voxelResolution: hollowingState.voxelResolution,
             shellThicknessMm: hollowingState.shellThicknessMm,
             openFace: hollowingState.openFace,
+            openFaceSelected: effectiveHollowMode === 'shell_open_face'
+              ? isShellOpenFaceSelected
+              : true,
           },
         });
       } catch (error) {
@@ -14733,7 +14774,7 @@ export default function Home() {
         setIsApplyingHollowing(false);
       }
     })();
-  }, [hollowingDraftEnabled, hollowingState, persistActiveModelModifiers, scene]);
+  }, [hollowingDraftEnabled, hollowingState, isShellOpenFaceSelected, persistActiveModelModifiers, scene]);
 
   const handleResetHollowing = React.useCallback(() => {
     const activeModel = scene.activeModel;
@@ -14757,6 +14798,7 @@ export default function Home() {
     }
 
     setHollowingState(defaultHollowingState);
+    setIsShellOpenFaceSelected(true);
     setHollowingDraftEnabled(false);
     persistActiveModelModifiers({
       ...(activeModel.meshModifiers ?? {}),
@@ -14769,6 +14811,7 @@ export default function Home() {
         voxelResolution: defaultHollowingState.voxelResolution,
         shellThicknessMm: defaultHollowingState.shellThicknessMm,
         openFace: defaultHollowingState.openFace,
+        openFaceSelected: true,
       },
       holePunchAppliedPlacements: [],
       holePunchesBakedIntoGeometry: false,
@@ -14778,8 +14821,24 @@ export default function Home() {
   }, [defaultHollowingState, persistActiveModelModifiers, scene.activeModel]);
 
   const handleHollowingStateChange = React.useCallback((next: HollowingPanelState) => {
+    const openFaceChanged = next.openFace !== hollowingState.openFace;
+    const nextShellOpenFaceSelected = next.mode === 'shell_open_face'
+      ? (
+        hollowingState.mode !== 'shell_open_face'
+          ? false
+          : (openFaceChanged ? true : isShellOpenFaceSelected)
+      )
+      : true;
+
     setHollowingState(next);
+    setIsShellOpenFaceSelected(nextShellOpenFaceSelected);
     setHollowingDraftEnabled(true);
+
+    if (!nextShellOpenFaceSelected) {
+      setSelectedHolePunchPlacementId(null);
+      setHoveredHolePunchPlacementId(null);
+      setHolePunchHoverPlacement(null);
+    }
 
     const activeModel = scene.activeModel;
     if (!activeModel) return;
@@ -14795,9 +14854,10 @@ export default function Home() {
         voxelResolution: next.voxelResolution,
         shellThicknessMm: next.shellThicknessMm,
         openFace: next.openFace,
+        openFaceSelected: nextShellOpenFaceSelected,
       },
     });
-  }, [persistActiveModelModifiers, scene.activeModel]);
+  }, [hollowingState.mode, hollowingState.openFace, isShellOpenFaceSelected, persistActiveModelModifiers, scene.activeModel]);
 
   const selectedHolePunchPlacement = React.useMemo(() => (
     selectedHolePunchPlacementId
@@ -14929,9 +14989,21 @@ export default function Home() {
       voxelResolution: hollowingState.voxelResolution,
       shellThicknessMm: hollowingState.shellThicknessMm,
       openFace: hollowingState.openFace,
+      openFaceSelected: hollowingState.mode === 'shell_open_face'
+        ? isShellOpenFaceSelected
+        : true,
     }),
-    [hollowingDraftEnabled, hollowingState.mode, hollowingState.openFace, hollowingState.shellThicknessMm, hollowingState.voxelResolution],
+    [
+      hollowingDraftEnabled,
+      hollowingState.mode,
+      hollowingState.openFace,
+      hollowingState.shellThicknessMm,
+      hollowingState.voxelResolution,
+      isShellOpenFaceSelected,
+    ],
   );
+
+  const isShellFaceSelectionPending = hollowingState.mode === 'shell_open_face' && !isShellOpenFaceSelected;
 
   const isHollowingApplied = React.useMemo(() => {
     const modifier = scene.activeModel?.meshModifiers?.hollowing;
@@ -14987,6 +15059,37 @@ export default function Home() {
     const hitModelId = (hit.object.userData?.modelId as string | undefined) ?? activeModel.id;
     if (hitModelId !== activeModel.id) return;
 
+    if (hollowingState.mode === 'shell_open_face' && !isShellOpenFaceSelected) {
+      const pickedOpenFace = inferOpenFaceFromHit(hit, hollowingState.openFace);
+      const nextHollowingState: HollowingPanelState = {
+        ...hollowingState,
+        openFace: pickedOpenFace,
+      };
+
+      setHollowingState(nextHollowingState);
+      setIsShellOpenFaceSelected(true);
+      setHollowingDraftEnabled(true);
+      setSelectedHolePunchPlacementId(null);
+      setHoveredHolePunchPlacementId(null);
+      setHolePunchHoverPlacement(null);
+
+      persistActiveModelModifiers({
+        ...(activeModel.meshModifiers ?? {}),
+        hollowing: {
+          enabled: true,
+          bakedIntoGeometry: false,
+          sourcePositionsBase64: activeModel.meshModifiers?.hollowing?.sourcePositionsBase64,
+          sourcePositionCount: activeModel.meshModifiers?.hollowing?.sourcePositionCount,
+          mode: nextHollowingState.mode,
+          voxelResolution: nextHollowingState.voxelResolution,
+          shellThicknessMm: nextHollowingState.shellThicknessMm,
+          openFace: nextHollowingState.openFace,
+          openFaceSelected: true,
+        },
+      });
+      return;
+    }
+
     const placement = buildHolePunchPlacementFromHit(hit, activeModel.id);
     setHolePunchPlacements((previous) => {
       const nextPlacements = [...previous, placement];
@@ -15010,11 +15113,17 @@ export default function Home() {
     });
     setSelectedHolePunchPlacementId(placement.id);
     setHolePunchHoverPlacement(null);
-  }, [buildHolePunchPlacementFromHit, persistActiveModelModifiers, scene.activeModel]);
+  }, [
+    buildHolePunchPlacementFromHit,
+    hollowingState,
+    isShellOpenFaceSelected,
+    persistActiveModelModifiers,
+    scene.activeModel,
+  ]);
 
   const handleHolePunchHover = React.useCallback((hit: THREE.Intersection | null) => {
     const activeModel = scene.activeModel;
-    if (!activeModel || !hit) {
+    if (!activeModel || !hit || (hollowingState.mode === 'shell_open_face' && !isShellOpenFaceSelected)) {
       setHolePunchHoverPlacement(null);
       return;
     }
@@ -15027,7 +15136,7 @@ export default function Home() {
 
     const placement = buildHolePunchPlacementFromHit(hit, activeModel.id);
     setHolePunchHoverPlacement(placement);
-  }, [buildHolePunchPlacementFromHit, scene.activeModel]);
+  }, [buildHolePunchPlacementFromHit, hollowingState.mode, isShellOpenFaceSelected, scene.activeModel]);
 
   const handleSelectHolePunchPlacement = React.useCallback((placementId: string) => {
     setSelectedHolePunchPlacementId(placementId);
@@ -15466,6 +15575,9 @@ export default function Home() {
     tuning?: { preview?: boolean; previewVoxelResolution?: number; previewShellThicknessMm?: number },
   ): HollowOptions => {
     const preview = Boolean(tuning?.preview);
+    const effectiveHollowMode = hollowingState.mode === 'shell_open_face'
+      ? 'cavity'
+      : hollowingState.mode;
     const voxelResolution = preview
       ? (tuning?.previewVoxelResolution ?? Math.min(hollowingState.voxelResolution, 72))
       : hollowingState.voxelResolution;
@@ -15474,7 +15586,7 @@ export default function Home() {
       : hollowingState.shellThicknessMm;
 
     return {
-      mode: hollowingState.mode,
+      mode: effectiveHollowMode,
       voxelResolution,
       shellThicknessMm: worldMmToLocalMm(
         shellThicknessMmWorld,
@@ -15670,6 +15782,7 @@ export default function Home() {
       setSelectedHolePunchPlacementId(null);
       setHolePunchHoverPlacement(null);
       setHollowingState(defaultHollowingState);
+      setIsShellOpenFaceSelected(true);
       setHollowingDraftEnabled(false);
       setHolePunchState(defaultHolePunchState);
       return;
@@ -15696,12 +15809,22 @@ export default function Home() {
     const persistedHollowing = activeModel.meshModifiers?.hollowing;
     const nextHollowingPanelState = persistedHollowing?.enabled
       ? {
-          mode: persistedHollowing.mode,
+          mode: persistedHollowing.mode === 'shell_open_face' ? 'cavity' : persistedHollowing.mode,
           voxelResolution: persistedHollowing.voxelResolution,
           shellThicknessMm: persistedHollowing.shellThicknessMm,
           openFace: persistedHollowing.openFace,
         }
       : defaultHollowingState;
+
+    const nextShellOpenFaceSelected = nextHollowingPanelState.mode === 'shell_open_face'
+      ? (persistedHollowing?.openFaceSelected ?? true)
+      : true;
+    setIsShellOpenFaceSelected(nextShellOpenFaceSelected);
+    if (!nextShellOpenFaceSelected) {
+      setSelectedHolePunchPlacementId(null);
+      setHoveredHolePunchPlacementId(null);
+      setHolePunchHoverPlacement(null);
+    }
 
     if (persistedHollowing?.enabled) {
       setHollowingDraftEnabled(true);
@@ -15737,6 +15860,14 @@ export default function Home() {
     if (isApplyingHollowing) return;
 
     if (isHollowingApplied && !isHollowingDirty) {
+      clearPendingHollowPreviewDebounce();
+      if (hollowPreview) {
+        clearHollowPreview();
+      }
+      return;
+    }
+
+    if (isShellFaceSelectionPending) {
       clearPendingHollowPreviewDebounce();
       if (hollowPreview) {
         clearHollowPreview();
@@ -15793,6 +15924,7 @@ export default function Home() {
     isHollowingApplied,
     isHollowingDirty,
     isApplyingHollowing,
+    isShellFaceSelectionPending,
     resolveHollowPreviewSourceGeometry,
     runHollowPreview,
     scene.activeModel,
@@ -16395,8 +16527,9 @@ export default function Home() {
                   onApply={() => { void handleApplyHollowing(); }}
                   isApplying={isApplyingHollowing}
                   isPreviewing={isPreviewingHollowing}
-                  canApply={isHollowingDirty || !isHollowingApplied}
+                  canApply={!isShellFaceSelectionPending && (isHollowingDirty || !isHollowingApplied)}
                   canReset={canResetHollowing}
+                  shellFaceSelectionPending={isShellFaceSelectionPending}
                 />
 
                 <HolePunchPanel
@@ -16406,8 +16539,8 @@ export default function Home() {
                   onReset={requestResetHolePunch}
                   onApply={() => { void handleApplyHolePunch(); }}
                   isApplying={isApplyingHolePunch}
-                  canApply={isHolePunchDirty || holePunchNeedsBake}
-                  canReset={canResetHolePunch}
+                  canApply={!isShellFaceSelectionPending && (isHolePunchDirty || holePunchNeedsBake)}
+                  canReset={!isShellFaceSelectionPending && canResetHolePunch}
                 />
               </>
             )}
@@ -17060,7 +17193,11 @@ export default function Home() {
                 ? scene.models.find((model) => model.id === hollowPreview.modelId) ?? null
                 : null;
               const activeModelId = scene.activeModel?.id ?? null;
-              const showHolePunchMarkers = scene.mode === 'prepare' && transformMgr.transformMode === 'hollowing';
+              const showHolePunchMarkers = (
+                scene.mode === 'prepare'
+                && transformMgr.transformMode === 'hollowing'
+                && !isShellFaceSelectionPending
+              );
               const holePunchCavityBoundaryDepthMm = (hollowingDraftEnabled || isHollowingApplied)
                 ? Math.max(0, hollowingState.shellThicknessMm)
                 : null;

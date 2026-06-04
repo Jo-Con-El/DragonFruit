@@ -189,6 +189,52 @@ const N6: [(isize, isize, isize); 6] = [
     (0, 0, -1),
 ];
 
+const SQRT_2: f32 = std::f32::consts::SQRT_2;
+const SQRT_3: f32 = 1.732_050_8_f32;
+
+/// Forward-scan neighbour offsets and weights for the two-pass 3-D chamfer
+/// distance transform (z-outer, y-middle, x-inner ascending scan order).
+/// These 13 entries cover voxels with a smaller linear index — already
+/// computed when the forward pass arrives at the current cell.
+const SHELL_DIST_FORWARD: [((isize, isize, isize), f32); 13] = [
+    // dz = -1: all nine (dx, dy) combinations
+    ((-1, -1, -1), SQRT_3),
+    ((0, -1, -1), SQRT_2),
+    ((1, -1, -1), SQRT_3),
+    ((-1, 0, -1), SQRT_2),
+    ((0, 0, -1), 1.0_f32),
+    ((1, 0, -1), SQRT_2),
+    ((-1, 1, -1), SQRT_3),
+    ((0, 1, -1), SQRT_2),
+    ((1, 1, -1), SQRT_3),
+    // dz = 0, dy = -1: three (dx) values
+    ((-1, -1, 0), SQRT_2),
+    ((0, -1, 0), 1.0_f32),
+    ((1, -1, 0), SQRT_2),
+    // dz = 0, dy = 0, dx = -1
+    ((-1, 0, 0), 1.0_f32),
+];
+
+/// Complementary backward-scan mask for the second EDT pass.
+const SHELL_DIST_BACKWARD: [((isize, isize, isize), f32); 13] = [
+    // dz = +1: all nine combinations
+    ((-1, -1, 1), SQRT_3),
+    ((0, -1, 1), SQRT_2),
+    ((1, -1, 1), SQRT_3),
+    ((-1, 0, 1), SQRT_2),
+    ((0, 0, 1), 1.0_f32),
+    ((1, 0, 1), SQRT_2),
+    ((-1, 1, 1), SQRT_3),
+    ((0, 1, 1), SQRT_2),
+    ((1, 1, 1), SQRT_3),
+    // dz = 0, dy = +1
+    ((-1, 1, 0), SQRT_2),
+    ((0, 1, 0), 1.0_f32),
+    ((1, 1, 0), SQRT_2),
+    // dz = 0, dy = 0, dx = +1
+    ((1, 0, 0), 1.0_f32),
+];
+
 pub fn hollow_voxel(mesh: IndexedMesh, options: &HollowOptions) -> HollowOutcome {
     let source_triangle_count = mesh.triangle_count();
     if source_triangle_count == 0 || mesh.positions.is_empty() {
@@ -340,9 +386,20 @@ pub fn hollow_voxel(mesh: IndexedMesh, options: &HollowOptions) -> HollowOutcome
     }
 
     // Multi-source BFS over solid voxels from boundary-adjacent solid cells.
-    let mut dist = vec![i32::MAX; nx * ny * nz];
-    let mut shell_q = VecDeque::<(usize, usize, usize)>::new();
+    // Two-pass 26-neighbour chamfer distance transform.
+    //
+    // The old 6-neighbour hop-count BFS measured the L1 (taxicab) distance,
+    // which underestimates the true Euclidean distance at diagonal directions
+    // by up to 1 − 1/√2 ≈ 29 %.  At a 90° convex exterior corner the cavity
+    // would intrude too deeply, producing thin walls and a 45° bevel where a
+    // right-angle inner surface was expected.
+    //
+    // The two-pass EDT approximates Euclidean distance (in voxel units) to
+    // within ~2 % by propagating face (cost 1), edge (cost √2), and corner
+    // (cost √3) steps.  Scan order: z-outer, y-middle, x-inner.
+    let mut dist = vec![f32::INFINITY; nx * ny * nz];
 
+    // Seed: surface-touching solid voxels get distance 0.
     for z in 0..nz {
         for y in 0..ny {
             for x in 0..nx {
@@ -351,56 +408,95 @@ pub fn hollow_voxel(mesh: IndexedMesh, options: &HollowOptions) -> HollowOutcome
                     continue;
                 }
                 let mut touches_outside = false;
-                for (dx, dy, dz) in N6 {
+                'seed: for (dx, dy, dz) in N6 {
                     let ax = x as isize + dx;
                     let ay = y as isize + dy;
                     let az = z as isize + dz;
                     if !grid.in_bounds(ax, ay, az) {
                         touches_outside = true;
-                        break;
+                        break 'seed;
                     }
                     let ni = grid.idx(ax as usize, ay as usize, az as usize);
                     if !solid[ni] {
                         touches_outside = true;
-                        break;
+                        break 'seed;
                     }
                 }
                 if touches_outside {
-                    dist[i] = 0;
-                    shell_q.push_back((x, y, z));
+                    dist[i] = 0.0;
                 }
             }
         }
     }
 
-    while let Some((x, y, z)) = shell_q.pop_front() {
-        let base = dist[grid.idx(x, y, z)];
-        for (dx, dy, dz) in N6 {
-            let nx_i = x as isize + dx;
-            let ny_i = y as isize + dy;
-            let nz_i = z as isize + dz;
-            if !grid.in_bounds(nx_i, ny_i, nz_i) {
-                continue;
+    // Forward pass: relax each voxel via the 13 already-visited
+    // backward-offset neighbours.
+    for z in 0..nz {
+        for y in 0..ny {
+            for x in 0..nx {
+                let i = grid.idx(x, y, z);
+                if !solid[i] {
+                    continue;
+                }
+                let mut d = dist[i];
+                for &((dx, dy, dz), w) in &SHELL_DIST_FORWARD {
+                    let nx_i = x as isize + dx;
+                    let ny_i = y as isize + dy;
+                    let nz_i = z as isize + dz;
+                    if !grid.in_bounds(nx_i, ny_i, nz_i) {
+                        continue;
+                    }
+                    let ni = grid.idx(nx_i as usize, ny_i as usize, nz_i as usize);
+                    if !solid[ni] {
+                        continue;
+                    }
+                    let candidate = dist[ni] + w;
+                    if candidate < d {
+                        d = candidate;
+                    }
+                }
+                dist[i] = d;
             }
-            let ux = nx_i as usize;
-            let uy = ny_i as usize;
-            let uz = nz_i as usize;
-            let i = grid.idx(ux, uy, uz);
-            if !solid[i] {
-                continue;
-            }
-            if dist[i] <= base + 1 {
-                continue;
-            }
-            dist[i] = base + 1;
-            shell_q.push_back((ux, uy, uz));
         }
     }
+
+    // Backward pass: relax via the 13 complementary forward-offset neighbours.
+    for z in (0..nz).rev() {
+        for y in (0..ny).rev() {
+            for x in (0..nx).rev() {
+                let i = grid.idx(x, y, z);
+                if !solid[i] {
+                    continue;
+                }
+                let mut d = dist[i];
+                for &((dx, dy, dz), w) in &SHELL_DIST_BACKWARD {
+                    let nx_i = x as isize + dx;
+                    let ny_i = y as isize + dy;
+                    let nz_i = z as isize + dz;
+                    if !grid.in_bounds(nx_i, ny_i, nz_i) {
+                        continue;
+                    }
+                    let ni = grid.idx(nx_i as usize, ny_i as usize, nz_i as usize);
+                    if !solid[ni] {
+                        continue;
+                    }
+                    let candidate = dist[ni] + w;
+                    if candidate < d {
+                        d = candidate;
+                    }
+                }
+                dist[i] = d;
+            }
+        }
+    }
+
+    // Shell-membership threshold in voxel units (exact float, not ceiling-rounded).
+    let shell_voxels_f = options.shell_thickness_mm.max(0.2) / voxel_mm;
 
     let mut keep = vec![false; nx * ny * nz];
     let mut kept_shell = 0usize;
     for i in 0..keep.len() {
-        if solid[i] && dist[i] <= shell_voxels {
+        if solid[i] && dist[i] <= shell_voxels_f {
             keep[i] = true;
             kept_shell += 1;
         }
@@ -439,11 +535,18 @@ pub fn hollow_voxel(mesh: IndexedMesh, options: &HollowOptions) -> HollowOutcome
     // Optional voxel-level chamfering on cavity boundaries to turn hard
     // orthogonal internal steps into printable ~45° transitions.
     if options.internal_chamfer_passes > 0 {
-        let max_passes = (shell_voxels.max(1) as u8).min(2);
+        let max_passes = (shell_voxels_f.ceil() as u8).max(1).min(2);
         let passes = options.internal_chamfer_passes.min(max_passes);
         for _ in 0..passes {
             apply_internal_cavity_chamfer_pass(&grid, &solid, &mut keep, &dist);
         }
+    }
+
+    // In cavity mode, keep exactly one connected interior cavity.
+    // Any disconnected pockets are filled back to solid instead of tunneling
+    // between them, which preserves minimum shell thickness guarantees.
+    if matches!(options.mode, HollowMode::Cavity) {
+        retain_largest_connected_cavity_component(&grid, &solid, &mut keep);
     }
 
     let removed_voxels = occupied_voxels.saturating_sub(keep.iter().filter(|v| **v).count());
@@ -644,7 +747,7 @@ fn apply_internal_cavity_chamfer_pass(
     grid: &GridSpec,
     solid: &[bool],
     keep: &mut [bool],
-    dist: &[i32],
+    dist: &[f32],
 ) {
     let mut carve = vec![false; keep.len()];
 
@@ -657,7 +760,9 @@ fn apply_internal_cavity_chamfer_pass(
                 }
 
                 // Preserve outer shell margin: only bevel deeper shell voxels.
-                if dist[i] <= 1 {
+                // Protect voxels within one diagonal step (√2 voxels) of the
+                // surface so bevelling never thins convex exterior corners.
+                if dist[i] <= SQRT_2 {
                     continue;
                 }
 
@@ -698,6 +803,74 @@ fn apply_internal_cavity_chamfer_pass(
     for (i, should_carve) in carve.into_iter().enumerate() {
         if should_carve {
             keep[i] = false;
+        }
+    }
+}
+
+fn retain_largest_connected_cavity_component(grid: &GridSpec, solid: &[bool], keep: &mut [bool]) {
+    let mut component_ids = vec![-1i32; keep.len()];
+    let mut component_sizes = Vec::<usize>::new();
+    let mut queue = VecDeque::<(usize, usize, usize)>::new();
+
+    for z in 0..grid.nz {
+        for y in 0..grid.ny {
+            for x in 0..grid.nx {
+                let start_idx = grid.idx(x, y, z);
+                if !solid[start_idx] || keep[start_idx] || component_ids[start_idx] >= 0 {
+                    continue;
+                }
+
+                let component_id = component_sizes.len() as i32;
+                component_ids[start_idx] = component_id;
+                queue.push_back((x, y, z));
+
+                let mut size = 0usize;
+                while let Some((cx, cy, cz)) = queue.pop_front() {
+                    size += 1;
+
+                    for (dx, dy, dz) in N6 {
+                        let nx_i = cx as isize + dx;
+                        let ny_i = cy as isize + dy;
+                        let nz_i = cz as isize + dz;
+                        if !grid.in_bounds(nx_i, ny_i, nz_i) {
+                            continue;
+                        }
+
+                        let ux = nx_i as usize;
+                        let uy = ny_i as usize;
+                        let uz = nz_i as usize;
+                        let ni = grid.idx(ux, uy, uz);
+
+                        if !solid[ni] || keep[ni] || component_ids[ni] >= 0 {
+                            continue;
+                        }
+
+                        component_ids[ni] = component_id;
+                        queue.push_back((ux, uy, uz));
+                    }
+                }
+
+                component_sizes.push(size);
+            }
+        }
+    }
+
+    if component_sizes.len() <= 1 {
+        return;
+    }
+
+    let mut largest_component_id = 0i32;
+    let mut largest_size = 0usize;
+    for (idx, size) in component_sizes.iter().enumerate() {
+        if *size > largest_size {
+            largest_size = *size;
+            largest_component_id = idx as i32;
+        }
+    }
+
+    for i in 0..keep.len() {
+        if solid[i] && !keep[i] && component_ids[i] != largest_component_id {
+            keep[i] = true;
         }
     }
 }

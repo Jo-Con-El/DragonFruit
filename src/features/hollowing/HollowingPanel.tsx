@@ -20,6 +20,7 @@ interface HollowingPanelProps {
   isPreviewing?: boolean;
   canApply?: boolean;
   canReset?: boolean;
+  shellFaceSelectionPending?: boolean;
 }
 
 export function HollowingPanel({
@@ -31,6 +32,7 @@ export function HollowingPanel({
   isPreviewing = false,
   canApply = true,
   canReset = true,
+  shellFaceSelectionPending = false,
 }: HollowingPanelProps) {
   const [expanded, setExpanded] = React.useState(true);
 
@@ -121,7 +123,8 @@ export function HollowingPanel({
                 className="ui-button ui-button-secondary !h-8 whitespace-nowrap px-1.5 text-[10px] sm:text-[11px]"
                 onClick={() => setState({ mode: 'shell_open_face' })}
                 style={state.mode === 'shell_open_face' ? activeModeStyle : undefined}
-                disabled={isApplying}
+                disabled
+                title="Work in Progress"
               >
                 Shell
               </button>
@@ -174,6 +177,12 @@ export function HollowingPanel({
                 <option value="z_min">Z Min</option>
                 <option value="z_max">Z Max</option>
               </Select>
+
+              {shellFaceSelectionPending && (
+                <p className="mt-1.5 text-[11px] leading-tight" style={{ color: 'var(--text-muted)' }}>
+                  Click the face you want to open in the scene.
+                </p>
+              )}
             </div>
           )}
 
