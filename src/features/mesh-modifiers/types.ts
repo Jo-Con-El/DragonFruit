@@ -1,4 +1,4 @@
-export type MeshModifierHollowMode = 'cavity' | 'shell_open_face';
+export type MeshModifierHollowMode = 'cavity' | 'infill' | 'shell_open_face';
 export type MeshModifierOpenFace = 'x_min' | 'x_max' | 'y_min' | 'y_max' | 'z_min' | 'z_max';
 
 export type ModelHollowingModifier = {

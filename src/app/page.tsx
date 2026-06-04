@@ -14749,8 +14749,8 @@ export default function Home() {
           openFace: hollowingState.openFace,
           drainHoles: [],
           previewCavityOnly: false,
-          smoothInternalSurfaces: true,
-          internalChamferPasses: 2,
+          smoothInternalSurfaces: effectiveHollowMode !== 'infill',
+          internalChamferPasses: effectiveHollowMode === 'infill' ? 0 : 2,
         };
         const sourceGeometryKey = buildGeometryVersionKey(sourceGeometry);
         const staged = await stageHollowPreviewSource(
@@ -14773,7 +14773,11 @@ export default function Home() {
         nextGeometry.computeBoundingBox();
         nextGeometry.computeBoundingSphere();
 
-        const modeLabel = hollowingState.mode === 'shell_open_face' ? 'Shell Hollowing' : 'Cavity Hollowing';
+        const modeLabel = hollowingState.mode === 'shell_open_face'
+          ? 'Shell Hollowing'
+          : hollowingState.mode === 'infill'
+            ? 'Infill Hollowing'
+            : 'Cavity Hollowing';
         const replaced = scene.replaceModelGeometry(
           activeModel.id,
           nextGeometry,
@@ -15884,8 +15888,8 @@ export default function Home() {
       openFace: hollowingState.openFace,
       drainHoles: [],
       previewCavityOnly: false,
-      smoothInternalSurfaces: !preview,
-      internalChamferPasses: preview ? 0 : 2,
+      smoothInternalSurfaces: effectiveHollowMode !== 'infill' && !preview,
+      internalChamferPasses: preview || effectiveHollowMode === 'infill' ? 0 : 2,
     };
   }, [
     hollowingState.mode,

@@ -9,7 +9,7 @@ interface TauriCoreModule {
 let tauriCorePromise: Promise<TauriCoreModule | null> | null = null;
 let stagedHollowPreviewSourceKey: string | null = null;
 
-export type HollowMode = 'cavity' | 'shell_open_face';
+export type HollowMode = 'cavity' | 'infill' | 'shell_open_face';
 export type OpenFace = 'x_min' | 'x_max' | 'y_min' | 'y_max' | 'z_min' | 'z_max';
 
 export interface DrainHoleSpec {

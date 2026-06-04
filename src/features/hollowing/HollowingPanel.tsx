@@ -95,10 +95,14 @@ export function HollowingPanel({
           </>
         )}
         right={(
-          <div className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5" style={{ borderColor: 'var(--border-subtle)' }}>
+            <div className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5" style={{ borderColor: 'var(--border-subtle)' }}>
             <Droplets className="w-3 h-3" style={{ color: 'var(--accent)' }} />
             <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-              {state.mode === 'shell_open_face' ? 'Open Face' : 'Cavity'}
+              {state.mode === 'shell_open_face'
+                ? 'Open Face'
+                : state.mode === 'infill'
+                  ? 'Infill'
+                  : 'Cavity'}
             </span>
           </div>
         )}
@@ -108,7 +112,7 @@ export function HollowingPanel({
         <div className="px-2 pb-2 space-y-2 sm:px-2.5 sm:pb-2.5">
           <div className="rounded-md border p-2 space-y-1.5" style={accentCardStyle}>
             <div className="ui-meta" style={{ color: 'var(--text-muted)' }}>Mode</div>
-            <div className="grid grid-cols-2 gap-1">
+            <div className="grid grid-cols-3 gap-1">
               <button
                 type="button"
                 className="ui-button ui-button-secondary !h-8 whitespace-nowrap px-1.5 text-[10px] sm:text-[11px]"
@@ -117,6 +121,15 @@ export function HollowingPanel({
                 disabled={isApplying}
               >
                 Cavity
+              </button>
+              <button
+                type="button"
+                className="ui-button ui-button-secondary !h-8 whitespace-nowrap px-1.5 text-[10px] sm:text-[11px]"
+                onClick={() => setState({ mode: 'infill' })}
+                style={state.mode === 'infill' ? activeModeStyle : undefined}
+                disabled={isApplying}
+              >
+                Infill
               </button>
               <button
                 type="button"
