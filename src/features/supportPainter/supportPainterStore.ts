@@ -92,6 +92,7 @@ let activeCustomBrushId: string | null = null;
 // ─── Support Placement Scripts State ───
 const placementScripts = new Map<string, SupportPlacementScript>();
 let activePlacementScriptId: string | null = null;
+let brushDefaultScripts = new Map<string, string>();
 
 const BRUSH_TYPES_LIST: BrushType[] = [
   'MacroFace', 'Ridge', 'Point', 'RoughEdge', 'SoftRidge', 'Ring',
@@ -166,21 +167,393 @@ function getDefaultOperationsForBrush(brushType: BrushType, defaultSpacing = 4.0
   }));
 }
 
-function initializeDefaultPlacementScripts() {
-  placementScripts.clear();
-  for (const brushType of BRUSH_TYPES_LIST) {
-    const defaultOps = getDefaultOperationsForBrush(brushType);
-    placementScripts.set(`default-${brushType}`, {
-      id: `default-${brushType}`,
-      name: `Default - ${brushType}`,
-      operations: defaultOps,
-      isBuiltIn: true,
-      isReadOnly: true,
-    });
+function _getDefaultScriptIdForBrush(brush: BrushType, pathMode?: 'line' | 'polygon'): string {
+  const key = brush === 'PointPath' && pathMode ? `PointPath-${pathMode}` : brush;
+  if (brushDefaultScripts.has(key)) {
+    const customId = brushDefaultScripts.get(key)!;
+    if (placementScripts.has(customId)) {
+      return customId;
+    }
+  }
+
+  switch (brush) {
+    case 'MacroFace':
+    case 'Point':
+    case 'ManualCircle':
+    case 'ManualSquare':
+      return 'default-perimeter-infill-structure';
+    case 'Marker':
+    case 'Ring':
+    case 'RoughEdge':
+    case 'Unk Legacy Brush':
+      return 'default-infill-only-structure';
+    case 'PointPath':
+      return pathMode === 'polygon' ? 'default-infill-only-structure' : 'default-centerline-detail';
+    case 'Ridge':
+    case 'SoftRidge':
+      return 'default-centerline-detail';
+    case 'MinimaIslands':
+      return 'default-minima-only-detail';
+    default:
+      return 'default-perimeter-infill-structure';
   }
 }
 
+function initializeDefaultPlacementScripts() {
+  placementScripts.clear();
+
+  // 1. Default - Perimeter + Infill (Structure)
+  placementScripts.set('default-perimeter-infill-structure', {
+    id: 'default-perimeter-infill-structure',
+    name: 'Default - Perimeter + Infill (Structure)',
+    isBuiltIn: true,
+    isReadOnly: true,
+    operations: [
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'minima',
+        enabled: true,
+        supportPresetId: 'structure',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 6.0,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 6.0,
+          suppressAgainst: ['minima'],
+        },
+        spacing: {
+          baseSpacingMm: 6.0,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'perimeter',
+        enabled: true,
+        supportPresetId: 'structure',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 2.5,
+        wrapFraction: 100,
+        suppression: {
+          enabled: false,
+          distanceMm: 6.0,
+          suppressAgainst: [],
+        },
+        spacing: {
+          baseSpacingMm: 2.5,
+          solverMode: 'standard',
+          useInflectionPoints: false,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'infill',
+        enabled: true,
+        supportPresetId: 'structure',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 3.0,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 3.0,
+          suppressAgainst: ['minima', 'perimeter', 'infill'],
+        },
+        spacing: {
+          baseSpacingMm: 3.0,
+          infillPattern: 'PoissonDisc',
+          seedFromMinima: true,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'centerline',
+        enabled: false,
+        supportPresetId: 'structure',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 6.0,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 6.0,
+          suppressAgainst: ['minima', 'perimeter', 'infill', 'centerline'],
+        },
+        spacing: {
+          baseSpacingMm: 6.0,
+          seedFromMinima: true,
+        },
+      }
+    ]
+  });
+
+  // 2. Default - Infill only (Structure)
+  placementScripts.set('default-infill-only-structure', {
+    id: 'default-infill-only-structure',
+    name: 'Default - Infill only (Structure)',
+    isBuiltIn: true,
+    isReadOnly: true,
+    operations: [
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'minima',
+        enabled: false,
+        supportPresetId: 'structure',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 6.0,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 6.0,
+          suppressAgainst: ['minima'],
+        },
+        spacing: {
+          baseSpacingMm: 6.0,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'perimeter',
+        enabled: false,
+        supportPresetId: 'structure',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 6.0,
+        wrapFraction: 100,
+        suppression: {
+          enabled: false,
+          distanceMm: 6.0,
+          suppressAgainst: [],
+        },
+        spacing: {
+          baseSpacingMm: 6.0,
+          solverMode: 'standard',
+          useInflectionPoints: false,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'infill',
+        enabled: true,
+        supportPresetId: 'structure',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 2.5,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 2.5,
+          suppressAgainst: ['minima', 'perimeter', 'infill'],
+        },
+        spacing: {
+          baseSpacingMm: 2.5,
+          infillPattern: 'PoissonDisc',
+          seedFromMinima: true,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'centerline',
+        enabled: false,
+        supportPresetId: 'structure',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 6.0,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 6.0,
+          suppressAgainst: ['minima', 'perimeter', 'infill', 'centerline'],
+        },
+        spacing: {
+          baseSpacingMm: 6.0,
+          seedFromMinima: true,
+        },
+      }
+    ]
+  });
+
+  // 3. Default - Centerline (Detail)
+  placementScripts.set('default-centerline-detail', {
+    id: 'default-centerline-detail',
+    name: 'Default - Centerline (Detail)',
+    isBuiltIn: true,
+    isReadOnly: true,
+    operations: [
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'minima',
+        enabled: false,
+        supportPresetId: 'detail',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 4.8,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 4.8,
+          suppressAgainst: ['minima'],
+        },
+        spacing: {
+          baseSpacingMm: 4.8,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'perimeter',
+        enabled: false,
+        supportPresetId: 'detail',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 4.8,
+        wrapFraction: 100,
+        suppression: {
+          enabled: false,
+          distanceMm: 4.8,
+          suppressAgainst: [],
+        },
+        spacing: {
+          baseSpacingMm: 4.8,
+          solverMode: 'standard',
+          useInflectionPoints: false,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'infill',
+        enabled: false,
+        supportPresetId: 'detail',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 4.8,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 4.8,
+          suppressAgainst: ['minima', 'perimeter', 'infill'],
+        },
+        spacing: {
+          baseSpacingMm: 4.8,
+          infillPattern: 'PoissonDisc',
+          seedFromMinima: true,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'centerline',
+        enabled: true,
+        supportPresetId: 'detail',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 4.8,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 1.5,
+          suppressAgainst: ['minima', 'perimeter', 'infill', 'centerline'],
+        },
+        spacing: {
+          baseSpacingMm: 1.5,
+          seedFromMinima: true,
+        },
+      }
+    ]
+  });
+
+  // 4. Default - Minima only (Detail)
+  placementScripts.set('default-minima-only-detail', {
+    id: 'default-minima-only-detail',
+    name: 'Default - Minima only (Detail)',
+    isBuiltIn: true,
+    isReadOnly: true,
+    operations: [
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'minima',
+        enabled: true,
+        supportPresetId: 'detail',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 4.0,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 0.8,
+          suppressAgainst: ['minima'],
+        },
+        spacing: {
+          baseSpacingMm: 4.0,
+          attemptLeafCreation: true,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'perimeter',
+        enabled: false,
+        supportPresetId: 'detail',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 4.8,
+        wrapFraction: 100,
+        suppression: {
+          enabled: false,
+          distanceMm: 4.8,
+          suppressAgainst: [],
+        },
+        spacing: {
+          baseSpacingMm: 4.8,
+          solverMode: 'standard',
+          useInflectionPoints: false,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'infill',
+        enabled: false,
+        supportPresetId: 'detail',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 4.8,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 4.8,
+          suppressAgainst: ['minima', 'perimeter', 'infill'],
+        },
+        spacing: {
+          baseSpacingMm: 4.8,
+          infillPattern: 'PoissonDisc',
+          seedFromMinima: true,
+        },
+      },
+      {
+        id: crypto.randomUUID?.() || Math.random().toString(36).substring(2),
+        type: 'centerline',
+        enabled: false,
+        supportPresetId: 'detail',
+        minimaStartInterval: 0,
+        minimaEndInterval: 100,
+        endSpacingMm: 4.8,
+        wrapFraction: 100,
+        suppression: {
+          enabled: true,
+          distanceMm: 4.8,
+          suppressAgainst: ['minima', 'perimeter', 'infill', 'centerline'],
+        },
+        spacing: {
+          baseSpacingMm: 4.8,
+          seedFromMinima: true,
+        },
+      }
+    ]
+  });
+}
+
 const SCRIPTS_LOCAL_STORAGE_KEY = 'dragonfruit.support-painter.placement-scripts';
+const BRUSH_DEFAULTS_STORAGE_KEY = 'dragonfruit.support-painter.brush-defaults';
 
 function savePlacementScriptsToLocalStorage() {
   try {
@@ -193,9 +566,33 @@ function savePlacementScriptsToLocalStorage() {
   }
 }
 
+function saveBrushDefaultsToLocalStorage() {
+  try {
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      localStorage.setItem(BRUSH_DEFAULTS_STORAGE_KEY, JSON.stringify(Array.from(brushDefaultScripts.entries())));
+    }
+  } catch (err) {
+    console.error('[SupportPainterStore] Failed to persist brush defaults', err);
+  }
+}
+
+function loadBrushDefaultsFromLocalStorage() {
+  try {
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(BRUSH_DEFAULTS_STORAGE_KEY);
+      if (raw) {
+        brushDefaultScripts = new Map(JSON.parse(raw));
+      }
+    }
+  } catch (err) {
+    console.error('[SupportPainterStore] Failed to restore brush defaults', err);
+  }
+}
+
 function loadPlacementScriptsFromLocalStorage() {
   try {
     initializeDefaultPlacementScripts();
+    loadBrushDefaultsFromLocalStorage();
     if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
       const raw = localStorage.getItem(SCRIPTS_LOCAL_STORAGE_KEY);
       if (raw) {
@@ -663,7 +1060,7 @@ export const supportPainterStore = {
     if (activeBrush === brush) return;
     activeBrush = brush;
     activeBrushPipeline = null; // Clear override on brush swap
-    activePlacementScriptId = `default-${brush}`; // Synchronize preset dropdown to the brush default script!
+    activePlacementScriptId = _getDefaultScriptIdForBrush(brush, brush === 'PointPath' ? pointPathMode : undefined);
     triangleColorMap = _recomputeTriangleColorMap();
     updateSnapshot();
     notify();
@@ -771,7 +1168,7 @@ export const supportPainterStore = {
       operations: JSON.parse(JSON.stringify(resolvedOps)),
     };
 
-    const scriptId = activePlacementScriptId || `default-${activeCustomBrush ? activeCustomBrush.baseBrush : payload.brushType}`;
+    const scriptId = activePlacementScriptId || _getDefaultScriptIdForBrush(activeCustomBrush ? activeCustomBrush.baseBrush || payload.brushType : payload.brushType, payload.brushType === 'PointPath' ? pointPathMode : undefined);
 
     const newRegion: ROIRegion = {
       id,
@@ -1678,6 +2075,15 @@ export const supportPainterStore = {
   setPointPathMode(mode: 'line' | 'polygon') {
     if (pointPathMode === mode) return;
     pointPathMode = mode;
+    if (activeBrush === 'PointPath') {
+      activePlacementScriptId = _getDefaultScriptIdForBrush('PointPath', mode);
+      const script = placementScripts.get(activePlacementScriptId);
+      if (script) {
+        activeBrushPipeline = JSON.parse(JSON.stringify(script.operations));
+      } else {
+        activeBrushPipeline = null;
+      }
+    }
     updateSnapshot();
     notify();
   },
@@ -1715,6 +2121,7 @@ export const supportPainterStore = {
       operations: JSON.parse(JSON.stringify(resolvedOps)),
     };
 
+    const scriptId = activePlacementScriptId || _getDefaultScriptIdForBrush('PointPath', pointPathMode);
     const newRegion: ROIRegion = {
       id,
       brushType: 'PointPath',
@@ -1724,6 +2131,7 @@ export const supportPainterStore = {
       proposedOnly: false,
       createdAt: Date.now(),
       customBrush: customBrushOverride,
+      placementScriptId: scriptId,
     };
 
     regions.set(id, newRegion);
@@ -1787,6 +2195,56 @@ export const supportPainterStore = {
 
   setActivePlacementScriptId(id: string | null) {
     activePlacementScriptId = id;
+    updateSnapshot();
+    notify();
+  },
+
+  getDefaultScriptIdForBrush(brush: BrushType, pathMode?: 'line' | 'polygon'): string {
+    return _getDefaultScriptIdForBrush(brush, pathMode);
+  },
+
+  assignBrushDefault(brush: BrushType, scriptId: string, currentOperations?: CustomSupportOperation[]) {
+    const key = brush === 'PointPath' ? `PointPath-${pointPathMode}` : brush;
+    let finalScriptId = scriptId;
+    if (scriptId === 'unsaved' && currentOperations) {
+      const newId = `custom-default-${brush.toLowerCase()}-${Date.now()}`;
+      const brushLabel = brush === 'PointPath' ? `PointPath (${pointPathMode})` : brush;
+      const newScript: SupportPlacementScript = {
+        id: newId,
+        name: `Default Override - ${brushLabel}`,
+        operations: JSON.parse(JSON.stringify(currentOperations)),
+        isBuiltIn: false,
+      };
+      this.addPlacementScript(newScript);
+      finalScriptId = newId;
+    }
+    brushDefaultScripts.set(key, finalScriptId);
+    saveBrushDefaultsToLocalStorage();
+
+    activePlacementScriptId = finalScriptId;
+    const script = placementScripts.get(finalScriptId);
+    if (script) {
+      activeBrushPipeline = JSON.parse(JSON.stringify(script.operations));
+    }
+    updateSnapshot();
+    notify();
+  },
+
+  resetBrushDefault(brush: BrushType) {
+    const keys = brush === 'PointPath' ? ['PointPath-line', 'PointPath-polygon'] : [brush];
+    for (const k of keys) {
+      brushDefaultScripts.delete(k);
+    }
+    saveBrushDefaultsToLocalStorage();
+
+    const defaultId = _getDefaultScriptIdForBrush(brush, brush === 'PointPath' ? pointPathMode : undefined);
+    activePlacementScriptId = defaultId;
+    const script = placementScripts.get(defaultId);
+    if (script) {
+      activeBrushPipeline = JSON.parse(JSON.stringify(script.operations));
+    } else {
+      activeBrushPipeline = null;
+    }
     updateSnapshot();
     notify();
   },

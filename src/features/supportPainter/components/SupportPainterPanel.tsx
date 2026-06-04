@@ -280,13 +280,7 @@ export function SupportPainterPanel({
   const currentPipeline = upgradePipeline(rawPipeline, state.activeBrush, defaultSpacing);
 
   const matchedActiveScript = Array.from(state.placementScripts.values()).find(script => {
-    let scriptOps = script.operations;
-    if (script.isBuiltIn) {
-      const brushType = script.id.replace('default-', '') as BrushType;
-      scriptOps = upgradePipeline(undefined, brushType, defaultSpacing);
-    } else {
-      scriptOps = upgradePipeline(script.operations, state.activeBrush, defaultSpacing);
-    }
+    const scriptOps = upgradePipeline(script.operations, state.activeBrush, defaultSpacing);
     return arePipelinesEquivalent(scriptOps, currentPipeline);
   });
 
@@ -1605,13 +1599,7 @@ export function SupportPainterPanel({
             
             // Find if current custom support operations matches any known placement script
             const matchedScript = Array.from(state.placementScripts.values()).find(script => {
-              let scriptOps = script.operations;
-              if (script.isBuiltIn) {
-                const brushType = script.id.replace('default-', '') as BrushType;
-                scriptOps = upgradePipeline(undefined, brushType, defaultSpacing);
-              } else {
-                scriptOps = upgradePipeline(script.operations, state.activeBrush, defaultSpacing);
-              }
+              const scriptOps = upgradePipeline(script.operations, state.activeBrush, defaultSpacing);
               return arePipelinesEquivalent(scriptOps, currentPipeline);
             });
             

@@ -521,7 +521,7 @@ describe('Support Painter Phase 3 - Advanced Mathematical Pathing & Solvers', ()
     supportPainterStore.clearAll();
     
     const countBefore = supportPainterStore.getSnapshot().placementScripts.size;
-    assert.ok(countBefore >= 11, 'Should pre-populate at least 11 default placement scripts');
+    assert.ok(countBefore >= 4, 'Should pre-populate at least 4 default placement scripts');
 
     const customScript = {
       id: 'test-custom-script-id',

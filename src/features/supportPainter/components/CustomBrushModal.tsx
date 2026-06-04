@@ -217,13 +217,7 @@ export function CustomBrushModal({
 
   const currentModalPipeline = upgradePipeline(brush.operations, brush.baseBrush || 'MacroFace', defaultSpacing);
   const matchedModalScript = Array.from(state.placementScripts.values()).find(script => {
-    let scriptOps = script.operations;
-    if (script.isBuiltIn) {
-      const brushType = script.id.replace('default-', '') as BrushType;
-      scriptOps = upgradePipeline(undefined, brushType, defaultSpacing);
-    } else {
-      scriptOps = upgradePipeline(script.operations, brush.baseBrush || 'MacroFace', defaultSpacing);
-    }
+    const scriptOps = upgradePipeline(script.operations, brush.baseBrush || 'MacroFace', defaultSpacing);
     return arePipelinesEquivalent(scriptOps, currentModalPipeline);
   });
 
@@ -909,13 +903,7 @@ export function CustomBrushModal({
 
                 const currentPipeline = upgradePipeline(brush.operations, brush.baseBrush || 'MacroFace', defaultSpacing);
                 const matchedScript = Array.from(state.placementScripts.values()).find(script => {
-                  let scriptOps = script.operations;
-                  if (script.isBuiltIn) {
-                    const brushType = script.id.replace('default-', '') as BrushType;
-                    scriptOps = upgradePipeline(undefined, brushType, defaultSpacing);
-                  } else {
-                    scriptOps = upgradePipeline(script.operations, brush.baseBrush || 'MacroFace', defaultSpacing);
-                  }
+                  const scriptOps = upgradePipeline(script.operations, brush.baseBrush || 'MacroFace', defaultSpacing);
                   return arePipelinesEquivalent(scriptOps, currentPipeline);
                 });
 
