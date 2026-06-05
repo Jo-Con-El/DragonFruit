@@ -305,6 +305,7 @@ type HomeKickstandCollectionsSnapshot = Pick<
 type HollowPreviewState = {
   modelId: string;
   geometry: THREE.BufferGeometry;
+  infillGeometry: THREE.BufferGeometry | null;
   report: HollowReport;
   previewKey: string;
 };
@@ -313,6 +314,7 @@ type HollowPreviewCacheEntry = {
   modelId: string;
   report: HollowReport;
   positions: Float32Array;
+  infillPositions?: Float32Array;
 };
 
 type HollowingSourceEntry = {
@@ -438,8 +440,8 @@ function serializeHollowingModifier(modifier: ModelHollowingModifier | null | un
     mode: modifier.mode,
     voxelResolution: modifier.voxelResolution,
     shellThicknessMm: Number(modifier.shellThicknessMm.toFixed(4)),
-    infillCellMm: Number((modifier.infillCellMm ?? 8.0).toFixed(4)),
-    infillBeamRadiusMm: Number((modifier.infillBeamRadiusMm ?? 0.8).toFixed(4)),
+    infillCellMm: Number((modifier.infillCellMm ?? 4.2426).toFixed(4)),
+    infillBeamRadiusMm: Number((modifier.infillBeamRadiusMm ?? 0.25).toFixed(4)),
     openFace: modifier.openFace,
     openFaceSelected: modifier.mode === 'shell_open_face'
       ? (modifier.openFaceSelected ?? true)
@@ -1555,8 +1557,8 @@ export default function Home() {
     mode: 'cavity',
     voxelResolution: 96,
     shellThicknessMm: 2.0,
-    infillCellMm: 8.0,
-    infillBeamRadiusMm: 0.8,
+    infillCellMm: 4.2426,
+    infillBeamRadiusMm: 0.35,
     openFace: 'z_max',
   });
   const [isShellOpenFaceSelected, setIsShellOpenFaceSelected] = React.useState(true);
@@ -1638,8 +1640,8 @@ export default function Home() {
     mode: 'cavity',
     voxelResolution: 96,
     shellThicknessMm: 2.0,
-    infillCellMm: 8.0,
-    infillBeamRadiusMm: 0.8,
+    infillCellMm: 4.2426,
+    infillBeamRadiusMm: 0.35,
     openFace: 'z_max',
   }), []);
 
@@ -15953,16 +15955,24 @@ export default function Home() {
         hollowPreviewResultCacheRef.current.set(previewKey, cached);
 
         const previewGeometry = createGeometryFromPreviewPositions(cached.positions);
+        const infillGeometry = cached.infillPositions
+          ? createGeometryFromPreviewPositions(cached.infillPositions)
+          : null;
         if (hollowPreviewRequestSeqRef.current !== requestSeq) {
           previewGeometry.dispose();
+          infillGeometry?.dispose();
           return;
         }
 
         setHollowPreview((previous) => {
-          if (previous) previous.geometry.dispose();
+          if (previous) {
+            previous.geometry.dispose();
+            previous.infillGeometry?.dispose();
+          }
           return {
             modelId: cached.modelId,
             geometry: previewGeometry,
+            infillGeometry,
             report: cached.report,
             previewKey,
           };
@@ -15998,6 +16008,7 @@ export default function Home() {
         modelId: activeModel.id,
         report: result.report,
         positions: cachedPositions,
+        infillPositions: result.infillPositions,
       });
 
       if (hollowPreviewResultCacheRef.current.size > 6) {
@@ -16008,17 +16019,25 @@ export default function Home() {
       }
 
       const previewGeometry = createGeometryFromPreviewPositions(cachedPositions);
+      const infillGeometry = result.infillPositions
+        ? createGeometryFromPreviewPositions(result.infillPositions)
+        : null;
 
       if (hollowPreviewRequestSeqRef.current !== requestSeq) {
         previewGeometry.dispose();
+        infillGeometry?.dispose();
         return;
       }
 
       setHollowPreview((previous) => {
-        if (previous) previous.geometry.dispose();
+        if (previous) {
+          previous.geometry.dispose();
+          previous.infillGeometry?.dispose();
+        }
         return {
           modelId: activeModel.id,
           geometry: previewGeometry,
+          infillGeometry,
           report: result.report,
           previewKey,
         };
@@ -16043,7 +16062,10 @@ export default function Home() {
     setIsPreviewingHollowing(false);
     clearPendingHollowPreviewDebounce();
     setHollowPreview((previous) => {
-      if (previous) previous.geometry.dispose();
+      if (previous) {
+        previous.geometry.dispose();
+        previous.infillGeometry?.dispose();
+      }
       return null;
     });
   }, [clearPendingHollowPreviewDebounce]);
@@ -16052,6 +16074,7 @@ export default function Home() {
     return () => {
       if (hollowPreview) {
         hollowPreview.geometry.dispose();
+        hollowPreview.infillGeometry?.dispose();
       }
     };
   }, [hollowPreview]);
@@ -17636,6 +17659,31 @@ export default function Home() {
                           metalness={0.0}
                         />
                       </mesh>
+                      {hollowPreview.infillGeometry && (
+                        <mesh
+                          geometry={hollowPreview.infillGeometry}
+                          position={new THREE.Vector3(
+                            -previewModel.geometry.center.x,
+                            -previewModel.geometry.center.y,
+                            -previewModel.geometry.center.z,
+                          )}
+                          raycast={() => null}
+                          renderOrder={7}
+                        >
+                          <meshStandardMaterial
+                            color={'#43215f'}
+                            emissive={'#5a2f82'}
+                            emissiveIntensity={0.24}
+                            transparent
+                            opacity={0.9}
+                            depthTest
+                            depthWrite={false}
+                            side={THREE.DoubleSide}
+                            roughness={0.55}
+                            metalness={0.0}
+                          />
+                        </mesh>
+                      )}
                     </group>
                   )}
                 </>

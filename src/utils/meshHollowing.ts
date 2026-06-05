@@ -47,6 +47,7 @@ export interface HollowReport {
 export interface HollowResult {
   report: HollowReport;
   positions: Float32Array;
+  infillPositions?: Float32Array;
 }
 
 export function isTauriRuntime(): boolean {
@@ -99,7 +100,7 @@ async function stageGeometryToStagedMesh(
 
 async function readPositionsFromCommand(
   invoke: TauriInvoke,
-  command: 'mesh_repair_read_positions' | 'mesh_hollow_preview_read_positions',
+  command: 'mesh_repair_read_positions' | 'mesh_hollow_preview_read_positions' | 'mesh_hollow_preview_read_infill_positions',
 ): Promise<Float32Array> {
   const bytes = await invoke<ArrayBuffer | Uint8Array | number[]>(command);
   let u8: Uint8Array;
@@ -184,7 +185,15 @@ export async function hollowPreviewFromCapturedSource(
   const reportJson = await core.invoke<string>('mesh_hollow_preview_from_captured_source', { optionsJson });
   const report = JSON.parse(reportJson) as HollowReport;
   const positions = await readPositionsFromCommand(core.invoke, 'mesh_hollow_preview_read_positions');
-  return { report, positions };
+  let infillPositions: Float32Array | undefined;
+  if (options.mode === 'infill') {
+    try {
+      infillPositions = await readPositionsFromCommand(core.invoke, 'mesh_hollow_preview_read_infill_positions');
+    } catch {
+      infillPositions = undefined;
+    }
+  }
+  return { report, positions, infillPositions };
 }
 
 export async function hollowApplyFromCapturedSource(

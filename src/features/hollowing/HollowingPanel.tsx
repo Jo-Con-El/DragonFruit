@@ -37,6 +37,10 @@ export function HollowingPanel({
   shellFaceSelectionPending = false,
 }: HollowingPanelProps) {
   const [expanded, setExpanded] = React.useState(true);
+  const minInfillCellMm = 3;
+  const maxInfillCellMm = 24;
+  const minInfillDiameterMm = 0.5;
+  const maxInfillDiameterMm = 6.0;
 
   const setState = React.useCallback((patch: Partial<HollowingPanelState>) => {
     onStateChange({ ...state, ...patch });
@@ -52,6 +56,20 @@ export function HollowingPanel({
     const rounded = Number(safe.toFixed(decimals));
     return Math.min(max, Math.max(min, rounded));
   }, []);
+
+  const infillDensityPct = React.useMemo(() => {
+    const clampedCell = Math.min(maxInfillCellMm, Math.max(minInfillCellMm, state.infillCellMm));
+    return clampFloat((minInfillCellMm * minInfillCellMm * 100) / (clampedCell * clampedCell), 1, 100, 0);
+  }, [clampFloat, state.infillCellMm]);
+
+  const infillDiameterMm = React.useMemo(() => (
+    clampFloat(state.infillBeamRadiusMm * 2, minInfillDiameterMm, maxInfillDiameterMm, 2)
+  ), [clampFloat, state.infillBeamRadiusMm]);
+
+  const densityPctToCellMm = React.useCallback((densityPct: number) => {
+    const clampedDensity = clampFloat(densityPct, 1, 100, 0);
+    return clampFloat(minInfillCellMm / Math.sqrt(clampedDensity / 100), minInfillCellMm, maxInfillCellMm, 1);
+  }, [clampFloat]);
 
   const panelCardStyle: React.CSSProperties = {
     borderColor: 'var(--border-subtle)',
@@ -179,30 +197,30 @@ export function HollowingPanel({
           {state.mode === 'infill' && (
             <>
               <div className="rounded-md border p-2 space-y-1.5" style={panelCardStyle}>
-                <label className="ui-meta block" style={{ color: 'var(--text-muted)' }}>Cell Size</label>
+                <label className="ui-meta block" style={{ color: 'var(--text-muted)' }}>Infill Density</label>
                 <ScrollableNumberField
-                  value={state.infillCellMm}
-                  onChange={(value) => setState({ infillCellMm: clampFloat(value, 3, 24, 1) })}
-                  min={3}
-                  max={24}
-                  step={0.5}
-                  unit="mm"
-                  ariaLabel="Infill cell size in millimeters"
+                  value={infillDensityPct}
+                  onChange={(value) => setState({ infillCellMm: densityPctToCellMm(value) })}
+                  min={1}
+                  max={100}
+                  step={1}
+                  unit="%"
+                  ariaLabel="Infill density percent"
                   disabled={isApplying}
                   className="mt-1"
                 />
               </div>
 
               <div className="rounded-md border p-2 space-y-1.5" style={panelCardStyle}>
-                <label className="ui-meta block" style={{ color: 'var(--text-muted)' }}>Beam Radius</label>
+                <label className="ui-meta block" style={{ color: 'var(--text-muted)' }}>Infill Diameter</label>
                 <ScrollableNumberField
-                  value={state.infillBeamRadiusMm}
-                  onChange={(value) => setState({ infillBeamRadiusMm: clampFloat(value, 0.3, 3, 2) })}
-                  min={0.3}
-                  max={3}
-                  step={0.05}
+                  value={infillDiameterMm}
+                  onChange={(value) => setState({ infillBeamRadiusMm: clampFloat(value / 2, minInfillDiameterMm / 2, maxInfillDiameterMm / 2, 2) })}
+                  min={minInfillDiameterMm}
+                  max={maxInfillDiameterMm}
+                  step={0.1}
                   unit="mm"
-                  ariaLabel="Infill beam radius in millimeters"
+                  ariaLabel="Infill diameter in millimeters"
                   disabled={isApplying}
                   className="mt-1"
                 />

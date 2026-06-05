@@ -60,8 +60,8 @@ impl Default for HollowOptions {
             mode: HollowMode::Cavity,
             voxel_resolution: 96,
             shell_thickness_mm: 2.0,
-            infill_cell_mm: 8.0,
-            infill_beam_radius_mm: 0.8,
+            infill_cell_mm: 4.2426,
+            infill_beam_radius_mm: 0.35,
             open_face: OpenFace::ZMax,
             drain_holes: Vec::new(),
             preview_cavity_only: false,
@@ -130,6 +130,7 @@ pub struct HolePunchOutcome {
 #[derive(Debug, Clone)]
 pub struct HollowOutcome {
     pub mesh: IndexedMesh,
+    pub preview_infill_mesh: Option<IndexedMesh>,
     pub report: HollowReport,
 }
 
@@ -258,6 +259,7 @@ pub fn hollow_voxel(mesh: IndexedMesh, options: &HollowOptions) -> HollowOutcome
     if source_triangle_count == 0 || mesh.positions.is_empty() {
         return HollowOutcome {
             mesh,
+            preview_infill_mesh: None,
             report: HollowReport {
                 mode: options.mode,
                 voxel_resolution: options.voxel_resolution,
@@ -601,6 +603,25 @@ pub fn hollow_voxel(mesh: IndexedMesh, options: &HollowOptions) -> HollowOutcome
 
     HollowOutcome {
         mesh: out_mesh,
+        preview_infill_mesh: if options.preview_cavity_only
+            && matches!(options.mode, HollowMode::Infill)
+        {
+            let mesh = build_smooth_infill_mesh(
+                &source_bbox,
+                &grid,
+                &solid,
+                &keep,
+                options.infill_cell_mm,
+                options.infill_beam_radius_mm,
+            );
+            if mesh.triangles.is_empty() {
+                None
+            } else {
+                Some(mesh)
+            }
+        } else {
+            None
+        },
         report: HollowReport {
             mode: options.mode,
             voxel_resolution: options.voxel_resolution,
@@ -943,6 +964,25 @@ impl HollowSession {
 
         HollowOutcome {
             mesh: out_mesh,
+            preview_infill_mesh: if options.preview_cavity_only
+                && matches!(options.mode, HollowMode::Infill)
+            {
+                let mesh = build_smooth_infill_mesh(
+                    &self.source_bbox,
+                    &self.grid,
+                    &self.solid,
+                    &keep,
+                    options.infill_cell_mm,
+                    options.infill_beam_radius_mm,
+                );
+                if mesh.triangles.is_empty() {
+                    None
+                } else {
+                    Some(mesh)
+                }
+            } else {
+                None
+            },
             report: HollowReport {
                 mode: options.mode,
                 voxel_resolution: self.voxel_resolution,
@@ -1286,7 +1326,6 @@ fn build_hollow_output_mesh(
     } else {
         IndexedMesh::default()
     };
-    let has_infill_mesh = !infill_mesh.triangles.is_empty();
     let combined_internal_mesh = if infill_mesh.triangles.is_empty() {
         cavity_mesh.clone()
     } else if cavity_mesh.triangles.is_empty() {
@@ -1295,11 +1334,7 @@ fn build_hollow_output_mesh(
         merge_meshes(&cavity_mesh, &infill_mesh)
     };
     let out_mesh = if options.preview_cavity_only {
-        if matches!(options.mode, HollowMode::Infill) && has_infill_mesh {
-            infill_mesh
-        } else {
-            combined_internal_mesh
-        }
+        combined_internal_mesh
     } else {
         let filtered_source =
             filter_source_mesh_for_openings(source_mesh, options, source_bbox, grid.voxel_mm);
@@ -1738,7 +1773,8 @@ fn reduced_internal_cavity_smoothing_profile(
         0 | 1 => 0,
         n => (n / 2).max(1),
     };
-    let next_step = (profile.taubin_max_step_scale * 0.82).clamp(0.16, profile.taubin_max_step_scale);
+    let next_step =
+        (profile.taubin_max_step_scale * 0.82).clamp(0.16, profile.taubin_max_step_scale);
 
     let reduced = InternalCavitySmoothingProfile {
         scalar_field_blur_iterations: next_blur,
@@ -1918,7 +1954,8 @@ fn finalize_hollow_output_mesh_for_manifold(
             }
 
             let mut retry_profile = smoothing_profile;
-            while let Some(reduced_profile) = reduced_internal_cavity_smoothing_profile(retry_profile)
+            while let Some(reduced_profile) =
+                reduced_internal_cavity_smoothing_profile(retry_profile)
             {
                 retry_profile = reduced_profile;
                 eprintln!(
@@ -2129,8 +2166,12 @@ fn candidate_vertex_update_is_safe(
             }
         }
 
-        let prev_cross = prev_tri[1].sub(prev_tri[0]).cross(prev_tri[2].sub(prev_tri[0]));
-        let next_cross = next_tri[1].sub(next_tri[0]).cross(next_tri[2].sub(next_tri[0]));
+        let prev_cross = prev_tri[1]
+            .sub(prev_tri[0])
+            .cross(prev_tri[2].sub(prev_tri[0]));
+        let next_cross = next_tri[1]
+            .sub(next_tri[0])
+            .cross(next_tri[2].sub(next_tri[0]));
         let prev_area2 = prev_cross.length();
         let next_area2 = next_cross.length();
 
@@ -2488,7 +2529,12 @@ fn append_infill_beam_segment(
 }
 
 #[inline]
-fn point_samples_carved_cavity(grid: &GridSpec, solid: &[bool], keep: &[bool], point: Vec3) -> bool {
+fn point_samples_carved_cavity(
+    grid: &GridSpec,
+    solid: &[bool],
+    keep: &[bool],
+    point: Vec3,
+) -> bool {
     let x = ((point.x - grid.min.x) / grid.voxel_mm).floor() as isize;
     let y = ((point.y - grid.min.y) / grid.voxel_mm).floor() as isize;
     let z = ((point.z - grid.min.z) / grid.voxel_mm).floor() as isize;
@@ -3533,7 +3579,13 @@ mod tests {
             Vec3::new(0.0, -1.0, 0.0),
         ];
         let triangles = vec![[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 1]];
-        let vertex_faces = vec![vec![0, 1, 2, 3], vec![0, 3], vec![0, 1], vec![1, 2], vec![2, 3]];
+        let vertex_faces = vec![
+            vec![0, 1, 2, 3],
+            vec![0, 3],
+            vec![0, 1],
+            vec![1, 2],
+            vec![2, 3],
+        ];
 
         assert!(candidate_vertex_update_is_safe(
             0,
@@ -3644,8 +3696,7 @@ mod tests {
         let infill = hollow_voxel(mesh, &infill_options);
 
         assert_eq!(
-            infill.report.removed_voxels,
-            cavity.report.removed_voxels,
+            infill.report.removed_voxels, cavity.report.removed_voxels,
             "smooth infill keeps the same cavity carve and adds support geometry afterward"
         );
         assert!(

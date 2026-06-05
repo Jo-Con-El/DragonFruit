@@ -30,6 +30,7 @@ use crate::{
 static HOLLOW_PREVIEW_SOURCE_MESH: OnceLock<Mutex<Option<Arc<IndexedMesh>>>> = OnceLock::new();
 static HOLLOW_PREVIEW_SESSION: OnceLock<Mutex<Option<Arc<HollowSession>>>> = OnceLock::new();
 static HOLLOW_PREVIEW_RESULT_BYTES: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
+static HOLLOW_PREVIEW_INFILL_RESULT_BYTES: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
 static PUNCH_SOURCE_BYTES: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
 static PUNCH_RESULT_BYTES: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
 
@@ -43,6 +44,10 @@ fn hollow_preview_session() -> &'static Mutex<Option<Arc<HollowSession>>> {
 
 fn hollow_preview_result_bytes() -> &'static Mutex<Option<Vec<u8>>> {
     HOLLOW_PREVIEW_RESULT_BYTES.get_or_init(|| Mutex::new(None))
+}
+
+fn hollow_preview_infill_result_bytes() -> &'static Mutex<Option<Vec<u8>>> {
+    HOLLOW_PREVIEW_INFILL_RESULT_BYTES.get_or_init(|| Mutex::new(None))
 }
 
 fn punch_source_bytes() -> &'static Mutex<Option<Vec<u8>>> {
@@ -250,6 +255,9 @@ pub async fn mesh_hollow_preview_capture_staged_source() -> Result<(), String> {
     *hollow_preview_result_bytes()
         .lock()
         .map_err(|e| format!("hollow preview result lock poisoned: {e}"))? = None;
+    *hollow_preview_infill_result_bytes()
+        .lock()
+        .map_err(|e| format!("hollow preview infill result lock poisoned: {e}"))? = None;
     Ok(())
 }
 
@@ -312,11 +320,15 @@ pub async fn mesh_hollow_preview_from_captured_source(
         session
     };
 
-    let (positions_bytes, report) = tauri::async_runtime::spawn_blocking(move || {
+    let (positions_bytes, infill_positions_bytes, report) = tauri::async_runtime::spawn_blocking(move || {
         let outcome = session.run(&options);
         let soup = outcome.mesh.to_triangle_soup();
         let bytes: Vec<u8> = bytemuck::cast_slice::<f32, u8>(&soup).to_vec();
-        Ok::<_, String>((bytes, outcome.report))
+        let infill_bytes = outcome.preview_infill_mesh.map(|mesh| {
+            let soup = mesh.to_triangle_soup();
+            bytemuck::cast_slice::<f32, u8>(&soup).to_vec()
+        });
+        Ok::<_, String>((bytes, infill_bytes, outcome.report))
     })
     .await
     .map_err(|e| format!("hollow preview task panicked: {e}"))??;
@@ -324,6 +336,9 @@ pub async fn mesh_hollow_preview_from_captured_source(
     *hollow_preview_result_bytes()
         .lock()
         .map_err(|e| format!("hollow preview result lock poisoned: {e}"))? = Some(positions_bytes);
+    *hollow_preview_infill_result_bytes()
+        .lock()
+        .map_err(|e| format!("hollow preview infill result lock poisoned: {e}"))? = infill_positions_bytes;
 
     serde_json::to_string(&report).map_err(|e| format!("serialize hollow preview report: {e}"))
 }
@@ -406,6 +421,19 @@ pub async fn mesh_hollow_preview_read_positions() -> Result<Response, String> {
         .clone()
         .ok_or_else(|| {
             "No hollow preview result — call mesh_hollow_preview_from_captured_source first"
+                .to_string()
+        })?;
+    Ok(Response::new(bytes))
+}
+
+#[tauri::command]
+pub async fn mesh_hollow_preview_read_infill_positions() -> Result<Response, String> {
+    let bytes = hollow_preview_infill_result_bytes()
+        .lock()
+        .map_err(|e| format!("hollow preview infill result lock poisoned: {e}"))?
+        .clone()
+        .ok_or_else(|| {
+            "No hollow preview infill result — call mesh_hollow_preview_from_captured_source first"
                 .to_string()
         })?;
     Ok(Response::new(bytes))
