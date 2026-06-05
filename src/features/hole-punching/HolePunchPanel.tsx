@@ -161,16 +161,10 @@ export function HolePunchPanel({
               onClick={onApply}
               disabled={isApplying || !canApply}
             >
-              {isApplying ? (
-                <span className="inline-flex items-center justify-center gap-1.5">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>Saving…</span>
-                </span>
-              ) : (
-                <span className="inline-flex items-center justify-center gap-1.5">
-                  <span>Apply</span>
-                </span>
-              )}
+              <span className="inline-flex items-center justify-center gap-1.5">
+                {isApplying && <Loader2 className="h-3 w-3 animate-spin" />}
+                <span>{isApplying ? 'Applying...' : 'Apply'}</span>
+              </span>
             </button>
           </div>
         </div>

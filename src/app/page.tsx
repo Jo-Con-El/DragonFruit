@@ -2387,6 +2387,8 @@ export default function Home() {
   const [duplicateTotalCopies, setDuplicateTotalCopies] = React.useState(1);
   const [duplicateSpacingMm, setDuplicateSpacingMm] = React.useState(0.5);
   const showArrangeBlockingOverlay = isAutoArranging;
+  const showModifierApplyBlockingOverlay = isApplyingHollowing || isApplyingHolePunch || pendingHolePunchAutoApplyModelId !== null;
+  const [modifierApplyOverlayElapsedSec, setModifierApplyOverlayElapsedSec] = React.useState(0);
 
   const arrangeOverlayContent = React.useMemo(() => {
     if (activeArrangeOperation === 'high_precision_fill') {
@@ -2428,6 +2430,46 @@ export default function Home() {
     };
   }, [activeArrangeOperation]);
 
+  const modifierApplyOverlayContent = React.useMemo(() => {
+    if (isApplyingHollowing && pendingHolePunchAutoApplyModelId) {
+      return {
+        title: 'Applying Hollowing and Hole Punches...',
+        detailLines: [
+          'Updating the hollowed mesh and preserving your hole punches afterward.',
+          'Please be patient while we rebuild the model.',
+        ],
+      };
+    }
+
+    if (isApplyingHollowing) {
+      return {
+        title: 'Applying Hollowing...',
+        detailLines: [
+          'Rebuilding the model geometry with the latest hollowing settings.',
+          'Please wait a moment.',
+        ],
+      };
+    }
+
+    if (isApplyingHolePunch || pendingHolePunchAutoApplyModelId) {
+      return {
+        title: 'Applying Hole Punches...',
+        detailLines: [
+          'Cutting hole punches into the current model geometry.',
+          'Please wait a moment.',
+        ],
+      };
+    }
+
+    return {
+      title: 'Applying Model Changes...',
+      detailLines: [
+        'Updating model geometry.',
+        'Please wait a moment.',
+      ],
+    };
+  }, [isApplyingHolePunch, isApplyingHollowing, pendingHolePunchAutoApplyModelId]);
+
   React.useEffect(() => {
     if (!showArrangeBlockingOverlay) {
       setArrangeOverlayElapsedSec(0);
@@ -2442,12 +2484,32 @@ export default function Home() {
     return () => window.clearInterval(id);
   }, [showArrangeBlockingOverlay]);
 
+  React.useEffect(() => {
+    if (!showModifierApplyBlockingOverlay) {
+      setModifierApplyOverlayElapsedSec(0);
+      return;
+    }
+
+    const startedAt = Date.now();
+    const id = window.setInterval(() => {
+      setModifierApplyOverlayElapsedSec(Math.floor((Date.now() - startedAt) / 1000));
+    }, 250);
+
+    return () => window.clearInterval(id);
+  }, [showModifierApplyBlockingOverlay]);
+
   const arrangeOverlayElapsedLabel = React.useMemo(() => {
     const total = Math.max(0, arrangeOverlayElapsedSec);
     const minutes = Math.floor(total / 60);
     const seconds = total % 60;
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   }, [arrangeOverlayElapsedSec]);
+  const modifierApplyOverlayElapsedLabel = React.useMemo(() => {
+    const total = Math.max(0, modifierApplyOverlayElapsedSec);
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }, [modifierApplyOverlayElapsedSec]);
   const [duplicateLayoutMode, setDuplicateLayoutMode] = React.useState<DuplicateLayoutMode>('auto');
   const [duplicatePrecisionMode, setDuplicatePrecisionMode] = React.useState<ArrangePrecisionMode>('standard');
   const [duplicateArrayCountX, setDuplicateArrayCountX] = React.useState(2);
@@ -20999,6 +21061,47 @@ export default function Home() {
             </div>
             <div className="mt-1 text-[11px]" style={{ color: 'var(--text-muted)' }}>
               Processing {arrangeOverlayModelCount ?? 0} {arrangeOverlayModelCount === 1 ? 'model' : 'models'}
+            </div>
+
+            <div
+              className="ui-loading-track mt-3 h-2.5 w-full rounded-full"
+              style={{ background: 'color-mix(in srgb, var(--surface-2), black 20%)' }}
+            >
+              <div
+                className="ui-loading-indicator"
+                style={{ background: 'linear-gradient(90deg, var(--accent), #ff79c6)' }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showModifierApplyBlockingOverlay && (
+        <div className="absolute inset-0 z-[121] flex items-center justify-center bg-black/45 backdrop-blur-[1px]">
+          <div
+            className="w-[min(520px,92vw)] rounded-xl border px-5 py-4 shadow-xl"
+            style={{
+              background: 'color-mix(in srgb, var(--surface-0), black 10%)',
+              borderColor: 'var(--border-subtle)',
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-live="polite"
+          >
+            <div className="text-sm font-semibold" style={{ color: 'var(--text-strong)' }}>
+              {modifierApplyOverlayContent.title}
+            </div>
+            <div className="mt-1 space-y-0.5 text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              {modifierApplyOverlayContent.detailLines.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+
+            <div className="mt-2 text-[11px] font-medium tracking-wide" style={{ color: 'var(--accent)' }}>
+              Elapsed: {modifierApplyOverlayElapsedLabel}
+            </div>
+            <div className="mt-1 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              Processing 1 model
             </div>
 
             <div
