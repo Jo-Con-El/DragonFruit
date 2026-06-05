@@ -7,6 +7,7 @@ export interface ClientAdjacencyMap {
   faceNormals: THREE.Vector3[];
   faceCentroids: THREE.Vector3[];
   faceZBounds: { min: number; max: number }[];
+  macroNormalsCache?: Map<number, THREE.Vector3[]>;
 }
 
 /**
@@ -265,8 +266,25 @@ export function walkMacroFace(
   const queue: number[] = [seed];
   visited.add(seed);
 
-  const seedNormal = map.faceNormals[seed];
   const selection = customBrush?.selection;
+  const enableMacroNormal = selection?.enableMacroNormalFiltering ?? (
+    (selection?.macroNormalSmoothingIterations ?? 0) > 0 && 
+    (!!selection?.useMacroNormalForCone || !!selection?.useMacroNormalForSlope)
+  );
+  const iterations = enableMacroNormal ? (selection?.macroNormalSmoothingIterations ?? 0) : 0;
+  const lambda = selection?.macroNormalSmoothingLambda ?? 0.5;
+  const useMacroCone = enableMacroNormal && !!selection?.useMacroNormalForCone;
+  const useMacroSlope = enableMacroNormal && !!selection?.useMacroNormalForSlope;
+
+  let macroNormals = map.faceNormals;
+  if (iterations > 0 && (useMacroCone || useMacroSlope)) {
+    macroNormals = getOrComputeMacroNormals(map, iterations, lambda);
+  }
+
+  const seedNormalRaw = map.faceNormals[seed];
+  const seedNormalSlope = useMacroSlope ? macroNormals[seed] : seedNormalRaw;
+  const seedNormalCone = useMacroCone ? macroNormals[seed] : seedNormalRaw;
+
   const degToRad = Math.PI / 180;
   const localDown = new THREE.Vector3().copy(localUp).negate();
 
@@ -281,11 +299,11 @@ export function walkMacroFace(
     if (enableSlope) {
       const minSlopeRad = selection.overhangSlopeMinDeg * degToRad;
       const maxSlopeRad = selection.overhangSlopeMaxDeg * degToRad;
-      const seedSlope = seedNormal.angleTo(localDown);
+      const seedSlope = seedNormalSlope.angleTo(localDown);
       if (seedSlope < minSlopeRad || seedSlope > maxSlopeRad) return [];
     }
   } else {
-    if (seedNormal.dot(localUp) > 0.2) return [];
+    if (seedNormalRaw.dot(localUp) > 0.2) return [];
   }
 
   // Distance-to-segment squared helper
@@ -330,7 +348,8 @@ export function walkMacroFace(
             if (enableSlope) {
               const minSlopeRad = selection.overhangSlopeMinDeg * degToRad;
               const maxSlopeRad = selection.overhangSlopeMaxDeg * degToRad;
-              const adjSlope = nAdj.angleTo(localDown);
+              const nSlope = useMacroSlope ? macroNormals[adj] : nAdj;
+              const adjSlope = nSlope.angleTo(localDown);
               if (adjSlope < minSlopeRad || adjSlope > maxSlopeRad) continue;
             }
           } else {
@@ -401,20 +420,21 @@ export function walkMacroFace(
 
     for (const adj of adjs) {
       if (!visited.has(adj)) {
-        const nAdj = map.faceNormals[adj];
+        const nAdjRaw = map.faceNormals[adj];
+        const nAdjSlope = useMacroSlope ? macroNormals[adj] : nAdjRaw;
 
         let slopeOk = false;
         if (selection) {
           if (enableSlope) {
             const minSlopeRad = selection.overhangSlopeMinDeg * degToRad;
             const maxSlopeRad = selection.overhangSlopeMaxDeg * degToRad;
-            const adjSlope = nAdj.angleTo(localDown);
+            const adjSlope = nAdjSlope.angleTo(localDown);
             slopeOk = adjSlope >= minSlopeRad && adjSlope <= maxSlopeRad;
           } else {
             slopeOk = true;
           }
         } else {
-          slopeOk = nAdj.dot(localUp) <= 0.2;
+          slopeOk = nAdjRaw.dot(localUp) <= 0.2;
         }
 
         if (slopeOk) {
@@ -437,9 +457,10 @@ export function walkMacroFace(
             if (minDistSq > widthSpreadMmSq) continue;
           }
 
-          const normalDeviation = seedNormal.angleTo(nAdj);
+          const nAdjCone = useMacroCone ? macroNormals[adj] : nAdjRaw;
+          const normalDeviation = seedNormalCone.angleTo(nAdjCone);
           const nCurr = map.faceNormals[curr];
-          const edgeDihedral = nCurr.angleTo(nAdj);
+          const edgeDihedral = nCurr.angleTo(nAdjRaw);
 
           if (selection) {
             let curvatureOk = true;
@@ -484,7 +505,8 @@ export function walkMacroFace(
       const maxSlopeRad = selection.overhangSlopeMaxDeg * degToRad;
       return Array.from(visited).filter((idx) => {
         if (idx === seed) return true;
-        const slope = map.faceNormals[idx].angleTo(localDown);
+        const nSlope = useMacroSlope ? macroNormals[idx] : map.faceNormals[idx];
+        const slope = nSlope.angleTo(localDown);
         return slope >= minSlopeRad && slope <= maxSlopeRad;
       });
     } else {
@@ -1476,4 +1498,39 @@ export function walkPointPathPolygon(
   }
 
   return Array.from(filled);
+}
+
+function getOrComputeMacroNormals(
+  map: ClientAdjacencyMap,
+  iterations: number,
+  lambda: number
+): THREE.Vector3[] {
+  if (!map.macroNormalsCache) {
+    map.macroNormalsCache = new Map<number, THREE.Vector3[]>();
+  }
+  const cached = map.macroNormalsCache.get(iterations);
+  if (cached) return cached;
+
+  const count = map.faceCount;
+  const normals = map.faceNormals.map(n => n.clone());
+  const temp = Array.from({ length: count }, () => new THREE.Vector3());
+
+  for (let iter = 0; iter < iterations; iter++) {
+    for (let i = 0; i < count; i++) {
+      temp[i].copy(normals[i]);
+    }
+    for (let i = 0; i < count; i++) {
+      const adjs = map.faceToFaces[i] || [];
+      if (adjs.length === 0) continue;
+      const sum = new THREE.Vector3();
+      for (const adj of adjs) {
+        sum.add(temp[adj]);
+      }
+      sum.divideScalar(adjs.length);
+      normals[i].lerpVectors(temp[i], sum, lambda).normalize();
+    }
+  }
+
+  map.macroNormalsCache.set(iterations, normals);
+  return normals;
 }

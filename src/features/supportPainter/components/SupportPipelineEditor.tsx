@@ -7,6 +7,7 @@ import {
   X,
   Trash,
   Save,
+  GitMerge,
 } from 'lucide-react';
 import { IconButton, Button } from '@/components/ui/primitives';
 import { type CustomSupportOperation, type CustomSupportOperationType, type BrushType, arePipelinesEquivalent, upgradePipeline } from '../supportPainterTypes';
@@ -794,28 +795,7 @@ export function SupportPipelineEditor({
                           </>
                         )}
                         
-                        {/* Minima-specific fields */}
-                        {op.type === 'minima' && (
-                          <div className="col-span-2 flex flex-col gap-1.5 mt-1 border-b pb-3" style={{ borderColor: 'var(--border-subtle, #2d3748)' }}>
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={op.spacing.attemptLeafCreation || false}
-                                onChange={e =>
-                                  updateOpSpacing(index, { attemptLeafCreation: e.target.checked })
-                                }
-                                className="w-4 h-4 rounded accent-accent cursor-pointer"
-                                id={`leaf-check-${op.type}`}
-                              />
-                              <label htmlFor={`leaf-check-${op.type}`} className="cursor-pointer font-medium select-none text-[11px] text-gray-200">
-                                Attempt leaf support creation for Z-minima
-                              </label>
-                            </div>
-                            <p className="text-[10px] text-gray-400 leading-normal pl-6">
-                              When enabled, Z-minima points that fall within the search interval of an already successfully placed support trunk will branch off as a lightweight leaf contact cone instead of creating a full, separate vertical column.
-                            </p>
-                          </div>
-                        )}
+
 
                         {/* Perimeter-specific fields */}
                         {op.type === 'perimeter' && (
@@ -1227,6 +1207,174 @@ export function SupportPipelineEditor({
                         )}
                       </div>
                     )}
+
+                    {/* Consolidation & Branching settings */}
+                    <div className="flex flex-col gap-3 border-t pt-3" style={{ borderColor: 'var(--border-subtle, #2d3748)' }}>
+                      <h4 className="font-bold text-[10px] uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                        <GitMerge className="w-3.5 h-3.5" />
+                        Consolidation & Branching settings
+                      </h4>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* Leaf Consolidation Toggle */}
+                        <div className="col-span-2 flex flex-col gap-1.5">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={op.spacing.attemptLeafCreation || false}
+                              onChange={e =>
+                                updateOpSpacing(index, { attemptLeafCreation: e.target.checked })
+                              }
+                              className="w-4 h-4 rounded accent-accent cursor-pointer"
+                              id={`leaf-check-${opKey}`}
+                            />
+                            <label htmlFor={`leaf-check-${opKey}`} className="cursor-pointer font-medium select-none text-[11px] text-gray-200">
+                              Attempt leaf support creation (Tips Merging)
+                            </label>
+                          </div>
+                          <p className="text-[10px] text-gray-400 leading-normal pl-6">
+                            Merge support tips into nearby existing trunks to form branch connections instead of full vertical columns.
+                          </p>
+                        </div>
+
+                        {/* Leaf Search Interval */}
+                        {op.spacing.attemptLeafCreation && (
+                          <div className="col-span-2 flex flex-col gap-1 pl-6 animate-fade-in">
+                            <span>Leaf Search Interval (mm)</span>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0.5"
+                              value={op.spacing.leafInterval ?? op.spacing.baseSpacingMm}
+                              onChange={e => {
+                                const val = parseFloat(e.target.value);
+                                updateOpSpacing(index, {
+                                  leafInterval: isNaN(val) ? op.spacing.baseSpacingMm : val,
+                                });
+                              }}
+                              className="px-2.5 py-1.5 rounded border font-medium outline-none"
+                              style={{
+                                background: 'var(--surface-1, #151a22)',
+                                borderColor: 'var(--border-subtle, #2d3748)',
+                              }}
+                            />
+                          </div>
+                        )}
+
+                        {/* Branch Consolidation Toggle */}
+                        <div className="col-span-2 flex flex-col gap-1.5 border-t pt-2.5" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={op.spacing.attemptBranchCreation || false}
+                              onChange={e =>
+                                updateOpSpacing(index, { attemptBranchCreation: e.target.checked })
+                              }
+                              className="w-4 h-4 rounded accent-accent cursor-pointer"
+                              id={`branch-check-${opKey}`}
+                            />
+                            <label htmlFor={`branch-check-${opKey}`} className="cursor-pointer font-medium select-none text-[11px] text-gray-200">
+                              Attempt branch support consolidation (Shafts Merging)
+                            </label>
+                          </div>
+                          <p className="text-[10px] text-gray-400 leading-normal pl-6">
+                            Merge vertical support shafts near the base into a single, shared trunk structure.
+                          </p>
+                        </div>
+
+                        {/* Branch Parameters */}
+                        {op.spacing.attemptBranchCreation && (
+                          <div className="col-span-2 flex flex-col gap-3 pl-6 animate-fade-in">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="flex flex-col gap-1">
+                                <span>Consolidation Min Z Height (mm)</span>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0.0"
+                                  value={op.spacing.consolidationMinZ ?? 8.0}
+                                  onChange={e => {
+                                    const val = parseFloat(e.target.value);
+                                    updateOpSpacing(index, {
+                                      consolidationMinZ: isNaN(val) ? 8.0 : val,
+                                    });
+                                  }}
+                                  className="px-2.5 py-1.5 rounded border font-medium outline-none"
+                                  style={{
+                                    background: 'var(--surface-1, #151a22)',
+                                    borderColor: 'var(--border-subtle, #2d3748)',
+                                  }}
+                                />
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <span>Base Close Distance (mm)</span>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0.1"
+                                  value={op.spacing.consolidationBaseDistance ?? 2.0}
+                                  onChange={e => {
+                                    const val = parseFloat(e.target.value);
+                                    updateOpSpacing(index, {
+                                      consolidationBaseDistance: isNaN(val) ? 2.0 : val,
+                                    });
+                                  }}
+                                  className="px-2.5 py-1.5 rounded border font-medium outline-none"
+                                  style={{
+                                    background: 'var(--surface-1, #151a22)',
+                                    borderColor: 'var(--border-subtle, #2d3748)',
+                                  }}
+                                />
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <span>Tip Close Distance (mm)</span>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0.1"
+                                  value={op.spacing.consolidationTipDistance ?? 5.0}
+                                  onChange={e => {
+                                    const val = parseFloat(e.target.value);
+                                    updateOpSpacing(index, {
+                                      consolidationTipDistance: isNaN(val) ? 5.0 : val,
+                                    });
+                                  }}
+                                  className="px-2.5 py-1.5 rounded border font-medium outline-none"
+                                  style={{
+                                    background: 'var(--surface-1, #151a22)',
+                                    borderColor: 'var(--border-subtle, #2d3748)',
+                                  }}
+                                />
+                              </div>
+
+                              <div className="flex flex-col gap-1">
+                                <span>Centroid Angle (theta) (°)</span>
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  min="0.0"
+                                  max="180.0"
+                                  value={op.spacing.consolidationThetaAngle ?? 20.0}
+                                  onChange={e => {
+                                    const val = parseFloat(e.target.value);
+                                    updateOpSpacing(index, {
+                                      consolidationThetaAngle: isNaN(val) ? 20.0 : val,
+                                    });
+                                  }}
+                                  className="px-2.5 py-1.5 rounded border font-medium outline-none"
+                                  style={{
+                                    background: 'var(--surface-1, #151a22)',
+                                    borderColor: 'var(--border-subtle, #2d3748)',
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </fieldset>
                 )}
               </div>

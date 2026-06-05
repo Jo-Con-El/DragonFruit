@@ -324,4 +324,92 @@ describe('Support Painter - New Smart Brushes Unit Tests', () => {
       assert.ok(!resultSet.has(7), 'Lateral neighbor 7 should be rejected');
     });
   });
+
+  describe('MacroFace Brush with Experimental Macro Normal Filtering', () => {
+    it('should filter using raw normals when disabled (default)', () => {
+      // 1x3 grid: Face 0, 1 (seed), 2.
+      // Face 2 normal is tilted by 36 degrees. Limit is 30 degrees.
+      const mockMap: ClientAdjacencyMap = {
+        faceCount: 3,
+        faceNormals: [
+          new THREE.Vector3(0, 0, -1), // 0
+          new THREE.Vector3(0, 0, -1), // 1: seed
+          new THREE.Vector3(0.588, 0, -0.809).normalize(), // 2: raw deviation 36 deg
+        ],
+        faceCentroids: [
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(1, 0, 0),
+          new THREE.Vector3(2, 0, 0),
+        ],
+        faceZBounds: Array.from({ length: 3 }, () => ({ min: -0.1, max: 0.1 })),
+        faceToFaces: [
+          [1],    // 0
+          [0, 2], // 1 (seed)
+          [1],    // 2
+        ],
+      };
+
+      const mockCustomBrush: any = {
+        selection: {
+          enableSlopeLimit: false,
+          enableNormalConeLimit: true,
+          normalConeAngleMinDeg: 0,
+          normalConeAngleMaxDeg: 30, // 30 degrees limit
+          enableDihedralLimit: false,
+          useMacroNormalForCone: false, // DISABLED
+        }
+      };
+
+      const localUp = new THREE.Vector3(0, 0, 1);
+      const selected = walkMacroFace(mockMap, 1, localUp, mockCustomBrush);
+      const resultSet = new Set(selected);
+
+      // Face 2 should be rejected since useMacroNormalForCone is false
+      assert.ok(resultSet.has(1));
+      assert.ok(!resultSet.has(2), 'Neighbor 2 should be rejected because raw normal exceeds 30 deg');
+    });
+
+    it('should accept noisy neighbor when macro normal filtering is enabled', () => {
+      const mockMap: ClientAdjacencyMap = {
+        faceCount: 3,
+        faceNormals: [
+          new THREE.Vector3(0, 0, -1), // 0
+          new THREE.Vector3(0, 0, -1), // 1: seed
+          new THREE.Vector3(0.588, 0, -0.809).normalize(), // 2: raw deviation 36 deg
+        ],
+        faceCentroids: [
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(1, 0, 0),
+          new THREE.Vector3(2, 0, 0),
+        ],
+        faceZBounds: Array.from({ length: 3 }, () => ({ min: -0.1, max: 0.1 })),
+        faceToFaces: [
+          [1],    // 0
+          [0, 2], // 1 (seed)
+          [1],    // 2
+        ],
+      };
+
+      const mockCustomBrush: any = {
+        selection: {
+          enableSlopeLimit: false,
+          enableNormalConeLimit: true,
+          normalConeAngleMinDeg: 0,
+          normalConeAngleMaxDeg: 30, // 30 degrees limit
+          enableDihedralLimit: false,
+          useMacroNormalForCone: true, // ENABLED
+          macroNormalSmoothingIterations: 2,
+          macroNormalSmoothingLambda: 0.8,
+        }
+      };
+
+      const localUp = new THREE.Vector3(0, 0, 1);
+      const selected = walkMacroFace(mockMap, 1, localUp, mockCustomBrush);
+      const resultSet = new Set(selected);
+
+      // Face 2 should be accepted since it gets smoothed and its macro-normal deviation drops below 30 deg
+      assert.ok(resultSet.has(1));
+      assert.ok(resultSet.has(2), 'Neighbor 2 should be accepted because smoothed normal satisfies 30 deg limit');
+    });
+  });
 });

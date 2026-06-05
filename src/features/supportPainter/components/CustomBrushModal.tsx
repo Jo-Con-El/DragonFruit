@@ -98,6 +98,11 @@ const presets: Record<BrushType, Partial<CustomBrushTemplate['selection']>> = {
     enableNormalConeLimit: true,
     enableDihedralLimit: true,
     enableCurvatureLimit: false,
+    enableMacroNormalFiltering: false,
+    useMacroNormalForCone: false,
+    useMacroNormalForSlope: false,
+    macroNormalSmoothingIterations: 0,
+    macroNormalSmoothingLambda: 0.5,
     normalConeAngleMinDeg: 15,
     normalConeAngleMaxDeg: 45,
     overhangSlopeMinDeg: 0,
@@ -152,6 +157,11 @@ const DEFAULT_TEMPLATE: CustomBrushTemplate = {
     enableNormalConeLimit: true,
     enableDihedralLimit: true,
     enableCurvatureLimit: false,
+    enableMacroNormalFiltering: false,
+    useMacroNormalForCone: false,
+    useMacroNormalForSlope: false,
+    macroNormalSmoothingIterations: 0,
+    macroNormalSmoothingLambda: 0.5,
     normalConeAngleMinDeg: 15,
     normalConeAngleMaxDeg: 45,
     overhangSlopeMinDeg: 0,
@@ -597,6 +607,83 @@ export function CustomBrushModal({
                             <span className="font-bold min-w-[32px] text-right">
                               {safeNum(brush.selection.centerlineCurvatureLimitDeg, 25)}°
                             </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Macro Normal Constraints */}
+                  <div className="flex flex-col gap-4 border-t pt-4 text-xs" style={{ borderColor: 'var(--border-subtle, #2d3748)' }}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-gray-300 uppercase tracking-wider text-[10px]">Macro Normal Filtering (Experimental)</span>
+                      <input
+                        type="checkbox"
+                        checked={!!brush.selection.enableMacroNormalFiltering}
+                        onChange={e => updateSelection({ enableMacroNormalFiltering: e.target.checked })}
+                        className="w-3.5 h-3.5 cursor-pointer accent-accent"
+                      />
+                    </div>
+
+                    {!!brush.selection.enableMacroNormalFiltering && (
+                      <div className="flex flex-col gap-4 animate-fade-in">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="flex items-center justify-between text-xs font-semibold">
+                            <span className="text-gray-300">Use Macro Normal for Cone Limit</span>
+                            <input
+                              type="checkbox"
+                              checked={!!brush.selection.useMacroNormalForCone}
+                              onChange={e => updateSelection({ useMacroNormalForCone: e.target.checked })}
+                              className="w-4 h-4 cursor-pointer accent-accent"
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between text-xs font-semibold">
+                            <span className="text-gray-300">Use Macro Normal for Slope Limit</span>
+                            <input
+                              type="checkbox"
+                              checked={!!brush.selection.useMacroNormalForSlope}
+                              onChange={e => updateSelection({ useMacroNormalForSlope: e.target.checked })}
+                              className="w-4 h-4 cursor-pointer accent-accent"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="flex flex-col gap-1.5">
+                            <span className="font-semibold text-gray-300">Macro Smoothing Iterations</span>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min="0"
+                                max="20"
+                                step="1"
+                                value={safeNum(brush.selection.macroNormalSmoothingIterations, 0)}
+                                onChange={e => updateSelection({ macroNormalSmoothingIterations: parseInt(e.target.value) })}
+                                className="flex-1 accent-accent cursor-pointer"
+                              />
+                              <span className="font-bold min-w-[32px] text-right">
+                                {safeNum(brush.selection.macroNormalSmoothingIterations, 0)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-1.5">
+                            <span className="font-semibold text-gray-300">Macro Smoothing Step (Lambda)</span>
+                            <div className="flex items-center gap-3">
+                              <input
+                                type="range"
+                                min="0.1"
+                                max="1.0"
+                                step="0.05"
+                                value={safeNum(brush.selection.macroNormalSmoothingLambda, 0.5)}
+                                onChange={e => updateSelection({ macroNormalSmoothingLambda: parseFloat(e.target.value) })}
+                                className="flex-1 accent-accent cursor-pointer"
+                              />
+                              <span className="font-bold min-w-[32px] text-right">
+                                {safeNum(brush.selection.macroNormalSmoothingLambda, 0.5).toFixed(2)}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>

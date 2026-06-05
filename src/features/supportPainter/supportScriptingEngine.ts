@@ -19,6 +19,10 @@ import {
   endSupportStateBatch,
   addLeaf,
   addKnot,
+  addRoot,
+  addTrunk,
+  addBranch,
+  removeTrunk,
 } from '@/supports/state';
 import { getShaftProfile, getSettings, setSettings, getPresetById } from '@/supports/Settings';
 import { pushHistory } from '@/history/historyStore';
@@ -27,8 +31,17 @@ import { deleteSupportsForRoi } from '@/supports/PlacementLogic/SupportModelLink
 import { placeSupportUnified, validateSupportPlacement } from '@/supports/PlacementLogic/UnifiedPlacement';
 import { buildLeafData } from '@/supports/SupportTypes/Leaf/leafBuilder';
 import { getTrunkSegmentEndpoints } from '@/supports/SupportPrimitives/Knot/knotUtils';
-import { type Trunk, type Segment, type Knot } from '@/supports/types';
+import { type Trunk, type Segment, type Knot, type Branch, type Joint } from '@/supports/types';
+import { type ContactCone } from '@/supports/SupportPrimitives/ContactCone/types';
+import { encodeSupportSettingsHex } from '@/supports/Settings/supportSettingsCodec';
 import { generateUuid } from '@/utils/uuid';
+import { getJointDiameter } from '@/supports/constants';
+import { resolveConeAxisPolicy } from '@/supports/PlacementLogic/ConeAxisPolicy';
+import { calculateDiskThickness } from '@/supports/SupportPrimitives/ContactDisk/contactDiskUtils';
+import { getSocketPosition } from '@/supports/SupportPrimitives/ContactCone/contactConeUtils';
+import { buildBranchData } from '@/supports/SupportTypes/Branch/branchBuilder';
+import { buildTrunkData } from '@/supports/SupportTypes/Trunk/trunkBuilder';
+
 
 // ─── Brush Metadata for Toasts ───
 // [AGENT_NOTE] Display names used for summary reporting in the toast component.
@@ -1684,13 +1697,13 @@ export async function generateSupportsFromPainter(
     const op = resolvedOps.find(o => o.type === stage && o.enabled);
     if (op) {
       const isLockedInfillZ = stage === 'infill' && op.enableZHeightDensity;
-      const isEnabled = isLockedInfillZ || op.suppression.enabled;
-      const dist = isLockedInfillZ ? 0.1 : op.suppression.distanceMm;
+      const isEnabled = isLockedInfillZ || op.suppression?.enabled;
+      const dist = isLockedInfillZ ? 0.1 : (op.suppression?.distanceMm ?? 0);
       if (isEnabled) {
         return {
           enabled: true,
           distanceMm: dist,
-          types: op.suppression.suppressAgainst,
+          types: op.suppression?.suppressAgainst ?? [],
           mode: 'all' as 'none' | 'current' | 'all',
         };
       }
@@ -1991,6 +2004,8 @@ export async function generateSupportsFromPainter(
                 regionType: region.brushType,
                 regionTriCount: region.triangleIds.size,
                 stage: 'perimeter',
+                attemptLeafCreation: stage.spacing.attemptLeafCreation,
+                leafInterval: stage.spacing.baseSpacingMm,
                 supportPresetId: stage.supportPresetId,
               });
             }
@@ -2075,6 +2090,8 @@ export async function generateSupportsFromPainter(
               regionType: region.brushType,
               regionTriCount: region.triangleIds.size,
               stage: 'centerline',
+              attemptLeafCreation: stage.spacing.attemptLeafCreation,
+              leafInterval: stage.spacing.baseSpacingMm,
               supportPresetId: stage.supportPresetId,
             });
           }
@@ -2147,6 +2164,8 @@ export async function generateSupportsFromPainter(
                     regionType: region.brushType,
                     regionTriCount: region.triangleIds.size,
                     stage: 'infill',
+                    attemptLeafCreation: stage.spacing.attemptLeafCreation,
+                    leafInterval: stage.spacing.baseSpacingMm,
                     supportPresetId: stage.supportPresetId,
                   });
                 }
@@ -2193,6 +2212,8 @@ export async function generateSupportsFromPainter(
                     regionType: region.brushType,
                     regionTriCount: region.triangleIds.size,
                     stage: 'infill',
+                    attemptLeafCreation: stage.spacing.attemptLeafCreation,
+                    leafInterval: stage.spacing.baseSpacingMm,
                     supportPresetId: stage.supportPresetId,
                   });
                 }
@@ -2219,6 +2240,8 @@ export async function generateSupportsFromPainter(
                 regionType: region.brushType,
                 regionTriCount: region.triangleIds.size,
                 stage: 'infill',
+                attemptLeafCreation: stage.spacing.attemptLeafCreation,
+                leafInterval: stage.spacing.baseSpacingMm,
                 supportPresetId: stage.supportPresetId,
               });
             }
@@ -2260,6 +2283,8 @@ export async function generateSupportsFromPainter(
                     regionType: region.brushType,
                     regionTriCount: region.triangleIds.size,
                     stage: 'infill',
+                    attemptLeafCreation: stage.spacing.attemptLeafCreation,
+                    leafInterval: stage.spacing.baseSpacingMm,
                     supportPresetId: stage.supportPresetId,
                   });
                 }
@@ -2845,7 +2870,7 @@ export async function generateSupportsFromPainter(
         }
       }
 
-      if (isAccepted && col.stage === 'minima' && col.attemptLeafCreation && col.leafInterval) {
+      if (isAccepted && col.attemptLeafCreation && col.leafInterval) {
         const leafInterval = col.leafInterval;
         const snapshot = getSupportSnapshot();
         const trunks = Object.values(snapshot.trunks).filter(t => t.modelId === modelId);
@@ -2972,16 +2997,356 @@ export async function generateSupportsFromPainter(
     }
   };
 
-  try {
-    // 5a. Place Z-minima heavy anchors
-    for (const anchorPoint of acceptedMinima) {
-      processPointPlacement(anchorPoint);
+  const getSpacingSettings = (
+    rId: string,
+    sName: 'minima' | 'perimeter' | 'infill' | 'centerline'
+  ) => {
+    const r = allRegions.get(rId);
+    if (!r) return null;
+    const resolvedOps = r.customBrush?.operations || upgradePipeline(undefined, r.brushType, defaultSpacing);
+    const op = resolvedOps.find(o => o.type === sName && o.enabled);
+    return op ? op.spacing : null;
+  };
+
+  function clusterPointsCentroid<T>(
+    items: T[],
+    getPos: (item: T) => THREE.Vector3,
+    threshold: number
+  ): T[][] {
+    const clusters: T[][] = [];
+    const assigned = new Set<number>();
+
+    for (let i = 0; i < items.length; i++) {
+      if (assigned.has(i)) continue;
+      
+      const cluster: T[] = [items[i]];
+      assigned.add(i);
+      
+      const centroid = getPos(items[i]).clone();
+      
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (let j = 0; j < items.length; j++) {
+          if (assigned.has(j)) continue;
+          const pos = getPos(items[j]);
+          if (pos.distanceTo(centroid) <= threshold) {
+            cluster.push(items[j]);
+            assigned.add(j);
+            centroid.set(0, 0, 0);
+            for (const item of cluster) {
+              centroid.add(getPos(item));
+            }
+            centroid.divideScalar(cluster.length);
+            changed = true;
+            break;
+          }
+        }
+      }
+      clusters.push(cluster);
+    }
+    return clusters;
+  }
+
+  function buildTipConeAndSocket(
+    tipPos: THREE.Vector3,
+    tipNormal: THREE.Vector3,
+    modelId: string,
+    settings: any
+  ) {
+    const { coneAxis } = resolveConeAxisPolicy({
+      surfaceNormal: tipNormal,
+      coneAngleMode: settings.tip.coneAngleMode ?? 'normal',
+      adaptiveConeAngleOffsetDeg: settings.tip.adaptiveConeAngleOffsetDeg ?? 30,
+    });
+    const effectiveConeAxis = coneAxis ?? tipNormal;
+    const tipProfile = {
+      type: 'disk',
+      contactDiameterMm: settings.tip.contactDiameterMm,
+      bodyDiameterMm: settings.tip.bodyDiameterMm,
+      lengthMm: settings.tip.lengthMm,
+      penetrationMm: settings.tip.penetrationMm,
+      diskThicknessMm: 0.1,
+      maxStandoffMm: 1.5,
+      standoffAngleThreshold: Math.PI / 4,
+    };
+    const diskThickness = tipProfile.type === 'disk'
+      ? calculateDiskThickness(tipNormal, effectiveConeAxis, tipProfile as any)
+      : 0;
+
+    const coneStartPos = new THREE.Vector3()
+      .copy(tipPos)
+      .addScaledVector(tipNormal, diskThickness);
+
+    const socketPos = getSocketPosition(coneStartPos, effectiveConeAxis, tipProfile as any);
+    const socketJointId = generateUuid();
+    const jointDiameter = getJointDiameter(settings.shaft.diameterMm);
+    const socketJoint: Joint = {
+      id: socketJointId,
+      pos: socketPos,
+      diameter: jointDiameter,
+    };
+
+    const contactCone: ContactCone = {
+      id: generateUuid(),
+      pos: { x: tipPos.x, y: tipPos.y, z: tipPos.z },
+      normal: { x: effectiveConeAxis.x, y: effectiveConeAxis.y, z: effectiveConeAxis.z },
+      surfaceNormal: { x: tipNormal.x, y: tipNormal.y, z: tipNormal.z },
+      profile: tipProfile as any,
+      socketJointId: socketJointId,
+    };
+
+    return { socketJoint, contactCone };
+  }
+
+  function shouldConsolidate(
+    trunkA: Trunk,
+    trunkB: Trunk,
+    snapshot: any,
+    spacingSettings: any,
+    mesh: THREE.Mesh | undefined
+  ): boolean {
+    if (!trunkA.contactCone || !trunkB.contactCone) return false;
+    
+    const minZ = spacingSettings.consolidationMinZ ?? 8.0;
+    const tipA = new THREE.Vector3(trunkA.contactCone.pos.x, trunkA.contactCone.pos.y, trunkA.contactCone.pos.z);
+    const tipB = new THREE.Vector3(trunkB.contactCone.pos.x, trunkB.contactCone.pos.y, trunkB.contactCone.pos.z);
+    
+    if (tipA.z < minZ || tipB.z < minZ) return false;
+
+    const rootA = snapshot.roots[trunkA.rootId];
+    const rootB = snapshot.roots[trunkB.rootId];
+    if (!rootA || !rootB) return false;
+
+    const baseA = new THREE.Vector3(rootA.transform.pos.x, rootA.transform.pos.y, rootA.transform.pos.z);
+    const baseB = new THREE.Vector3(rootB.transform.pos.x, rootB.transform.pos.y, rootB.transform.pos.z);
+
+    const baseDistXY = Math.sqrt(Math.pow(baseA.x - baseB.x, 2) + Math.pow(baseA.y - baseB.y, 2));
+    const maxBaseDist = spacingSettings.consolidationBaseDistance ?? 2.0;
+    if (baseDistXY > maxBaseDist) return false;
+
+    const tipDistXY = Math.sqrt(Math.pow(tipA.x - tipB.x, 2) + Math.pow(tipA.y - tipB.y, 2));
+    const maxTipDist = spacingSettings.consolidationTipDistance ?? 5.0;
+    if (tipDistXY <= maxTipDist) return true;
+
+    // Centroid angle check
+    let centroidXY = new THREE.Vector2(0, 0);
+    if (mesh && mesh.geometry) {
+      if (!mesh.geometry.boundingBox) {
+        mesh.geometry.computeBoundingBox();
+      }
+      const bbox = mesh.geometry.boundingBox;
+      if (bbox) {
+        const center = new THREE.Vector3();
+        bbox.getCenter(center);
+        centroidXY.set(center.x, center.y);
+      }
+    }
+    
+    const vectorA = new THREE.Vector2(tipA.x - centroidXY.x, tipA.y - centroidXY.y);
+    const vectorB = new THREE.Vector2(tipB.x - centroidXY.x, tipB.y - centroidXY.y);
+    const angleA = Math.atan2(vectorA.y, vectorA.x);
+    const angleB = Math.atan2(vectorB.y, vectorB.x);
+    let diff = Math.abs(angleA - angleB);
+    if (diff > Math.PI) {
+      diff = 2 * Math.PI - diff;
+    }
+    const diffDeg = diff * 180 / Math.PI;
+    const maxTheta = spacingSettings.consolidationThetaAngle ?? 20.0;
+    if (diffDeg <= maxTheta) return true;
+
+    return false;
+  }
+
+  function performBranchConsolidation(
+    hostTrunk: Trunk,
+    lowerTrunk: Trunk,
+    regionId: string,
+    modelId: string,
+    mesh: THREE.Mesh | undefined,
+    snapshot: any
+  ): boolean {
+    if (!hostTrunk.contactCone || !lowerTrunk.contactCone) return false;
+
+    const root = snapshot.roots[hostTrunk.rootId];
+    if (!root) return false;
+
+    const lowerTipPos = new THREE.Vector3(lowerTrunk.contactCone.pos.x, lowerTrunk.contactCone.pos.y, lowerTrunk.contactCone.pos.z);
+    
+    let bestKnotInfo: {
+      segment: Segment;
+      t: number;
+      projectedPoint: THREE.Vector3;
+      distance: number;
+    } | null = null;
+    let minDistance = Infinity;
+
+    for (let i = 0; i < hostTrunk.segments.length; i++) {
+      const segment = hostTrunk.segments[i];
+      const endpoints = getTrunkSegmentEndpoints(hostTrunk, segment, i, root);
+      if (!endpoints) continue;
+
+      const A = new THREE.Vector3(endpoints.start.x, endpoints.start.y, endpoints.start.z);
+      const B = new THREE.Vector3(endpoints.end.x, endpoints.end.y, endpoints.end.z);
+
+      const AB = new THREE.Vector3().subVectors(B, A);
+      const AP = new THREE.Vector3().subVectors(lowerTipPos, A);
+      const abLenSq = AB.lengthSq();
+      let t = 0;
+      if (abLenSq > 1e-8) {
+        t = AP.dot(AB) / abLenSq;
+        t = Math.max(0, Math.min(1, t));
+      }
+      const projected = new THREE.Vector3().addVectors(A, AB.multiplyScalar(t));
+      
+      if (lowerTipPos.z <= projected.z) continue;
+
+      const dist = lowerTipPos.distanceTo(projected);
+      if (dist < minDistance) {
+        minDistance = dist;
+        bestKnotInfo = {
+          segment,
+          t,
+          projectedPoint: projected,
+          distance: dist,
+        };
+      }
     }
 
-    // 5b. Place perimeter, infill, and centerline columns
-    const allColumns = [...acceptedPerimeter, ...acceptedInfill, ...acceptedCenterline];
-    for (const col of allColumns) {
-      processPointPlacement(col);
+    if (!bestKnotInfo) return false;
+
+    if (mesh) {
+      const dir = new THREE.Vector3().subVectors(bestKnotInfo.projectedPoint, lowerTipPos);
+      const distance = dir.length();
+      if (distance > 0.1) {
+        dir.normalize();
+        const raycaster = new THREE.Raycaster();
+        const rayStart = lowerTipPos.clone().addScaledVector(dir, 0.05);
+        const rayEnd = bestKnotInfo.projectedPoint.clone().addScaledVector(dir, -0.05);
+        const rayDist = rayStart.distanceTo(rayEnd);
+        raycaster.set(rayStart, dir);
+        raycaster.far = rayDist;
+        const hits = raycaster.intersectObject(mesh, false);
+        if (hits.length > 0) {
+          return false;
+        }
+      }
+    }
+
+    const knot: Knot = {
+      id: generateUuid(),
+      parentShaftId: bestKnotInfo.segment.id,
+      t: bestKnotInfo.t,
+      pos: { x: bestKnotInfo.projectedPoint.x, y: bestKnotInfo.projectedPoint.y, z: bestKnotInfo.projectedPoint.z },
+      diameter: bestKnotInfo.segment.diameter + 0.1,
+    };
+
+    const tipNormal = lowerTrunk.contactCone.surfaceNormal || lowerTrunk.contactCone.normal || { x: 0, y: 0, z: 1 };
+    const { branch } = buildBranchData({
+      tipPos: { x: lowerTrunk.contactCone.pos.x, y: lowerTrunk.contactCone.pos.y, z: lowerTrunk.contactCone.pos.z },
+      tipNormal: { x: tipNormal.x, y: tipNormal.y, z: tipNormal.z },
+      modelId,
+      parentKnot: knot,
+    });
+
+    if (branch) {
+      removeTrunk(lowerTrunk.id);
+      addKnot(knot);
+      branch.roiId = regionId;
+      addBranch(branch);
+      return true;
+    }
+
+    return false;
+  }
+
+  try {
+    const allAcceptedPoints = [
+      ...acceptedMinima,
+      ...acceptedPerimeter,
+      ...acceptedInfill,
+      ...acceptedCenterline
+    ];
+
+    const trunkIdsByStage = {
+      minima: new Set<string>(),
+      perimeter: new Set<string>(),
+      infill: new Set<string>(),
+      centerline: new Set<string>(),
+    };
+
+    for (const p of allAcceptedPoints) {
+      const beforeState = getSupportSnapshot();
+      const beforeTrunkIds = new Set(Object.keys(beforeState.trunks));
+
+      processPointPlacement(p);
+
+      const afterState = getSupportSnapshot();
+      for (const id of Object.keys(afterState.trunks)) {
+        if (!beforeTrunkIds.has(id)) {
+          trunkIdsByStage[p.stage].add(id);
+        }
+      }
+    }
+
+    // Run branch consolidation stage-by-stage
+    for (const r of regions) {
+      const rId = r.id;
+      for (const stageName of ['minima', 'perimeter', 'infill', 'centerline'] as const) {
+        const spacingSettings = getSpacingSettings(rId, stageName);
+        if (!spacingSettings || !spacingSettings.attemptBranchCreation) continue;
+
+        const stageTrunkIds = trunkIdsByStage[stageName];
+        if (stageTrunkIds.size < 2) continue;
+
+        const failedConsolidations = new Set<string>();
+        let changed = true;
+        while (changed) {
+          changed = false;
+          const currentSnapshot = getSupportSnapshot();
+          const currentCandidates = Object.values(currentSnapshot.trunks).filter(
+            t => stageTrunkIds.has(t.id) && !failedConsolidations.has(t.id)
+          );
+
+          let pairToConsolidate: [Trunk, Trunk] | null = null;
+          for (let i = 0; i < currentCandidates.length; i++) {
+            for (let j = i + 1; j < currentCandidates.length; j++) {
+              const trunkA = currentCandidates[i];
+              const trunkB = currentCandidates[j];
+              if (shouldConsolidate(trunkA, trunkB, currentSnapshot, spacingSettings, mesh)) {
+                pairToConsolidate = [trunkA, trunkB];
+                break;
+              }
+            }
+            if (pairToConsolidate) break;
+          }
+
+          if (pairToConsolidate) {
+            const [trunkA, trunkB] = pairToConsolidate;
+            const tipA = new THREE.Vector3(trunkA.contactCone!.pos.x, trunkA.contactCone!.pos.y, trunkA.contactCone!.pos.z);
+            const tipB = new THREE.Vector3(trunkB.contactCone!.pos.x, trunkB.contactCone!.pos.y, trunkB.contactCone!.pos.z);
+            
+            const hostTrunk = tipA.z >= tipB.z ? trunkA : trunkB;
+            const lowerTrunk = tipA.z >= tipB.z ? trunkB : trunkA;
+
+            const success = performBranchConsolidation(
+              hostTrunk,
+              lowerTrunk,
+              rId,
+              modelId,
+              mesh,
+              currentSnapshot
+            );
+            if (success) {
+              stageTrunkIds.delete(lowerTrunk.id);
+              changed = true;
+            } else {
+              failedConsolidations.add(lowerTrunk.id);
+              changed = true; // Try with other candidates
+            }
+          }
+        }
+      }
     }
   } catch (err) {
     console.error('[SupportScriptingEngine] Error batching support additions', err);

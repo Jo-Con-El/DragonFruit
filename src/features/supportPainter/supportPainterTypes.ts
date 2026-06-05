@@ -53,8 +53,19 @@ export interface CustomSupportOperation {
     infillPattern?: 'PoissonDisc' | 'Grid' | 'Honeycomb' | 'Concentric';
     seedFromMinima?: boolean;
     
-    // Minima-specific leaf creation configurations
+    // Leaf creation configurations
     attemptLeafCreation?: boolean;
+    leafInterval?: number;
+
+    // Branch consolidation configurations (Phase 4)
+    attemptBranchCreation?: boolean;
+    branchInterval?: number;
+    branchBlendFactor?: number;
+    maxBranchingAngle?: number;
+    consolidationMinZ?: number;
+    consolidationBaseDistance?: number;
+    consolidationTipDistance?: number;
+    consolidationThetaAngle?: number;
   };
 }
 
@@ -107,6 +118,12 @@ export interface CustomBrushTemplate {
     enableCenterlineConstraints?: boolean;
     centerlineWidthSpreadMm?: number;
     centerlineCurvatureLimitDeg?: number;
+
+    enableMacroNormalFiltering?: boolean;
+    useMacroNormalForCone?: boolean;
+    useMacroNormalForSlope?: boolean;
+    macroNormalSmoothingIterations?: number;
+    macroNormalSmoothingLambda?: number;
   };
 
   // Ordered operational pipeline
@@ -440,6 +457,15 @@ export function upgradePipeline(
       spacing: {
         baseSpacingMm: defaultSpacing,
         attemptLeafCreation: isMinimaIslands,
+        leafInterval: defaultSpacing,
+        attemptBranchCreation: false,
+        branchInterval: defaultSpacing,
+        branchBlendFactor: 0.5,
+        maxBranchingAngle: 45,
+        consolidationMinZ: 8.0,
+        consolidationBaseDistance: 2.0,
+        consolidationTipDistance: 5.0,
+        consolidationThetaAngle: 20.0,
       },
     },
     perimeter: {
@@ -454,6 +480,16 @@ export function upgradePipeline(
         baseSpacingMm: defaultSpacing,
         solverMode: 'standard',
         useInflectionPoints: false,
+        attemptLeafCreation: false,
+        leafInterval: defaultSpacing,
+        attemptBranchCreation: false,
+        branchInterval: defaultSpacing,
+        branchBlendFactor: 0.5,
+        maxBranchingAngle: 45,
+        consolidationMinZ: 8.0,
+        consolidationBaseDistance: 2.0,
+        consolidationTipDistance: 5.0,
+        consolidationThetaAngle: 20.0,
       },
     },
     infill: {
@@ -468,6 +504,16 @@ export function upgradePipeline(
         baseSpacingMm: defaultSpacing,
         infillPattern: 'PoissonDisc',
         seedFromMinima: true,
+        attemptLeafCreation: false,
+        leafInterval: defaultSpacing,
+        attemptBranchCreation: false,
+        branchInterval: defaultSpacing,
+        branchBlendFactor: 0.5,
+        maxBranchingAngle: 45,
+        consolidationMinZ: 8.0,
+        consolidationBaseDistance: 2.0,
+        consolidationTipDistance: 5.0,
+        consolidationThetaAngle: 20.0,
       },
     },
     centerline: {
@@ -481,6 +527,16 @@ export function upgradePipeline(
       spacing: {
         baseSpacingMm: defaultSpacing,
         seedFromMinima: true,
+        attemptLeafCreation: false,
+        leafInterval: defaultSpacing,
+        attemptBranchCreation: false,
+        branchInterval: defaultSpacing,
+        branchBlendFactor: 0.5,
+        maxBranchingAngle: 45,
+        consolidationMinZ: 8.0,
+        consolidationBaseDistance: 2.0,
+        consolidationTipDistance: 5.0,
+        consolidationThetaAngle: 20.0,
       },
     },
   };
@@ -538,6 +594,15 @@ export function arePipelinesEquivalent(a: CustomSupportOperation[], b: CustomSup
     if (spA.infillPattern !== spB.infillPattern) return false;
     if (spA.seedFromMinima !== spB.seedFromMinima) return false;
     if (spA.attemptLeafCreation !== spB.attemptLeafCreation) return false;
+    if (spA.leafInterval !== spB.leafInterval) return false;
+    if (spA.attemptBranchCreation !== spB.attemptBranchCreation) return false;
+    if (spA.branchInterval !== spB.branchInterval) return false;
+    if (spA.branchBlendFactor !== spB.branchBlendFactor) return false;
+    if (spA.maxBranchingAngle !== spB.maxBranchingAngle) return false;
+    if (spA.consolidationMinZ !== spB.consolidationMinZ) return false;
+    if (spA.consolidationBaseDistance !== spB.consolidationBaseDistance) return false;
+    if (spA.consolidationTipDistance !== spB.consolidationTipDistance) return false;
+    if (spA.consolidationThetaAngle !== spB.consolidationThetaAngle) return false;
   }
   return true;
 }
