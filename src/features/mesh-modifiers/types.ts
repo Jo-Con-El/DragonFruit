@@ -22,6 +22,7 @@ export type ModelHolePunchPlacement = {
   id: string;
   centerNorm: [number, number, number];
   radiusMm: number;
+  radiusYMm?: number;
   depthMm: number;
   direction: [number, number, number];
   depthMode?: 'manual' | 'auto';

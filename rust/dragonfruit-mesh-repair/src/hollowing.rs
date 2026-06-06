@@ -102,8 +102,11 @@ pub struct HollowReport {
 pub struct HolePunchSpec {
     /// Normalized position inside source bbox, each axis in [0, 1].
     pub center_norm: [f32; 3],
-    /// Cylinder radius in millimeters.
+    /// Cylinder radius in millimeters (X axis).
     pub radius_mm: f32,
+    /// Optional Y-axis radius for oval punches. Defaults to radius_mm.
+    #[serde(default)]
+    pub radius_y_mm: Option<f32>,
     /// Optional unit direction for the punch axis, in source-mesh local space.
     pub direction: Option<[f32; 3]>,
     /// Optional punch depth in millimeters.
@@ -2660,7 +2663,7 @@ fn append_infill_beam_segment(
     }
 
     let origin = line_origin.add(axis.scale((start_t - embed_pad).max(0.0)));
-    let beam = build_cylinder_mesh(origin, axis, radius_mm, length, radial_segments);
+    let beam = build_cylinder_mesh(origin, axis, radius_mm, radius_mm, length, radial_segments);
     soup.extend_from_slice(&beam.to_triangle_soup());
 }
 
@@ -3003,9 +3006,11 @@ fn punch_cylinders_manifold(
         }
 
         let radius = punch.radius_mm.max(0.02);
-        let circumference = std::f32::consts::TAU * radius;
+        let radius_y = punch.radius_y_mm.unwrap_or(punch.radius_mm).max(0.02);
+        let circumference = std::f32::consts::TAU * radius.max(radius_y);
         let radial_segments = ((circumference / 0.7).ceil() as usize).clamp(16, 80);
-        let punch_mesh = build_cylinder_mesh(center, axis, radius, length_mm, radial_segments);
+        let punch_mesh =
+            build_cylinder_mesh(center, axis, radius, radius_y, length_mm, radial_segments);
         if punch_mesh.triangles.is_empty() {
             continue;
         }
@@ -3127,6 +3132,7 @@ fn build_cylinder_mesh(
     origin: Vec3,
     axis: Vec3,
     radius: f32,
+    radius_y: f32,
     length: f32,
     segments: usize,
 ) -> IndexedMesh {
@@ -3151,13 +3157,13 @@ fn build_cylinder_mesh(
     positions.push(origin);
     positions.push(origin.add(axis.scale(length)));
 
-    // Rings
+    // Rings — use separate X/Y radii for oval support.
     for i in 0..segs {
         let t = i as f32 / segs as f32;
         let theta = t * std::f32::consts::TAU;
         let cs = theta.cos();
         let sn = theta.sin();
-        let radial = u.scale(cs * radius).add(v.scale(sn * radius));
+        let radial = u.scale(cs * radius).add(v.scale(sn * radius_y));
 
         positions.push(origin.add(radial));
         positions.push(origin.add(axis.scale(length)).add(radial));

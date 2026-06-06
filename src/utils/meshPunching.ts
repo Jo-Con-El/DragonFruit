@@ -12,6 +12,7 @@ let stagedPunchSourceKey: string | null = null;
 export interface PunchSpec {
   centerNorm: [number, number, number];
   radiusMm: number;
+  radiusYMm?: number;
   direction?: [number, number, number];
   lengthMm?: number;
 }

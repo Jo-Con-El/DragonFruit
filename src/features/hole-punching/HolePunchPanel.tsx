@@ -5,6 +5,7 @@ import { ScrollableNumberField } from '@/components/ui/scrollableNumberField';
 
 export interface HolePunchPanelState {
   radiusMm: number;
+  radiusYMm?: number;
   depthMm: number;
   depthMode: 'manual' | 'auto';
 }
@@ -33,6 +34,8 @@ export function HolePunchPanel({
   disabled = false,
 }: HolePunchPanelProps) {
   const [expanded, setExpanded] = React.useState(true);
+  const [linked, setLinked] = React.useState(true);
+  const effectiveRadiusYMm = state.radiusYMm ?? state.radiusMm;
 
   const clampFloat = React.useCallback((value: number, min: number, max: number, decimals = 1) => {
     const safe = Number.isFinite(value) ? value : min;
@@ -140,18 +143,80 @@ export function HolePunchPanel({
             </div>
           )}
 
-          <div className="rounded-md border p-2 space-y-1.5" style={cardStyle}>
-            <label className="ui-meta block" style={{ color: 'var(--text-muted)' }}>Hole Diameter</label>
+          <div className="rounded-md border p-2 space-y-2" style={cardStyle}>
+            <div className="flex items-center justify-between">
+              <label className="ui-meta" style={{ color: 'var(--text-muted)' }}>Hole Diameter</label>
+              <button
+                type="button"
+                className="flex items-center justify-center w-5 h-5 rounded transition-colors hover:bg-white/10"
+                onClick={() => {
+                  const nextLinked = !linked;
+                  setLinked(nextLinked);
+                  if (nextLinked) {
+                    setState({ radiusYMm: undefined });
+                  } else {
+                    // Initialize Y to current X so it stays independent.
+                    setState({ radiusYMm: state.radiusMm });
+                  }
+                }}
+                title={linked ? 'Unlink X and Y' : 'Link X and Y'}
+                disabled={disabled || isApplying}
+              >
+                <svg
+                  className="w-3.5 h-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ color: linked ? 'var(--accent)' : 'var(--text-muted)' }}
+                >
+                  {linked ? (
+                    <>
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                      <line x1="2" y1="2" x2="22" y2="22" />
+                    </>
+                  )}
+                </svg>
+              </button>
+            </div>
+
             <ScrollableNumberField
               value={state.radiusMm * 2}
-              onChange={(value) => setState({ radiusMm: clampFloat(value * 0.5, 0.2, 20, 2) })}
+              onChange={(value) => {
+                const nextRadius = clampFloat(value * 0.5, 0.2, 20, 2);
+                if (linked) {
+                  setState({ radiusMm: nextRadius, radiusYMm: undefined });
+                } else {
+                  setState({ radiusMm: nextRadius });
+                }
+              }}
               min={0.4}
               max={40}
               step={0.1}
               unit="mm"
-              ariaLabel="Hole punch diameter in millimeters"
-                disabled={disabled || isApplying}
-              className="mt-1"
+              ariaLabel="Hole diameter X in millimeters"
+              disabled={disabled || isApplying}
+              className="mt-0"
+            />
+
+            <ScrollableNumberField
+              value={effectiveRadiusYMm * 2}
+              onChange={(value) => setState({ radiusYMm: clampFloat(value * 0.5, 0.2, 20, 2) })}
+              min={0.4}
+              max={40}
+              step={0.1}
+              unit="mm"
+              ariaLabel="Hole diameter Y in millimeters"
+              disabled={disabled || isApplying || linked}
+              className="mt-0"
             />
           </div>
 

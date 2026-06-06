@@ -338,6 +338,7 @@ type HolePunchPlacementState = {
   localPoint: THREE.Vector3;
   localNormal: THREE.Vector3;
   radiusMm: number;
+  radiusYMm?: number;
   depthMm: number;
   depthMode: 'manual' | 'auto';
 };
@@ -376,6 +377,7 @@ function toPersistedHolePunchPlacements(
         toNorm(placement.localPoint.z, bbox.min.z, size.z),
       ],
       radiusMm: placement.radiusMm,
+      radiusYMm: placement.radiusYMm,
       depthMm: placement.depthMm,
       direction,
       depthMode: placement.depthMode,
@@ -436,6 +438,7 @@ function fromPersistedHolePunchPlacements(
       localPoint,
       localNormal,
       radiusMm: placement.radiusMm,
+      radiusYMm: placement.radiusYMm,
       depthMm: placement.depthMm,
       depthMode: placement.depthMode ?? 'manual',
     };
@@ -504,6 +507,7 @@ function serializeHolePunchPlacements(placements: ModelHolePunchPlacement[]): st
     id: placement.id,
     centerNorm: placement.centerNorm.map((value) => Number(value.toFixed(6))),
     radiusMm: Number(placement.radiusMm.toFixed(4)),
+    radiusYMm: placement.radiusYMm != null ? Number(placement.radiusYMm.toFixed(4)) : undefined,
     depthMm: Number(placement.depthMm.toFixed(4)),
     direction: placement.direction.map((value) => Number(value.toFixed(6))),
     depthMode: placement.depthMode ?? 'manual',
@@ -521,6 +525,7 @@ function serializeSingleHolePunchPlacement(placement: ModelHolePunchPlacement): 
     id: placement.id,
     centerNorm: placement.centerNorm.map((value) => Number(value.toFixed(6))),
     radiusMm: Number(placement.radiusMm.toFixed(4)),
+    radiusYMm: placement.radiusYMm != null ? Number(placement.radiusYMm.toFixed(4)) : undefined,
     depthMm: Number(placement.depthMm.toFixed(4)),
     direction: placement.direction.map((value) => Number(value.toFixed(6))),
     depthMode: placement.depthMode ?? 'manual',
@@ -1630,6 +1635,7 @@ export default function Home() {
   const hollowingEditModeRef = React.useRef(false);
   const [holePunchState, setHolePunchState] = React.useState<HolePunchPanelState>({
     radiusMm: 2.0,
+    radiusYMm: undefined,
     depthMm: getDefaultHolePunchDepthMm(2.0),
     depthMode: 'manual',
   });
@@ -1716,6 +1722,7 @@ export default function Home() {
 
   const defaultHolePunchState = React.useMemo<HolePunchPanelState>(() => ({
     radiusMm: 2.0,
+    radiusYMm: undefined,
     depthMm: getDefaultHolePunchDepthMm(defaultHollowingState.shellThicknessMm),
     depthMode: 'manual',
   }), [defaultHollowingState.shellThicknessMm]);
@@ -15228,6 +15235,7 @@ export default function Home() {
     if (nextPlacement) {
       setHolePunchState({
         radiusMm: nextPlacement.radiusMm,
+        radiusYMm: nextPlacement.radiusYMm,
         depthMm: nextPlacement.depthMm,
         depthMode: autoDepthEnabled ? nextPlacement.depthMode : 'manual',
       });
@@ -15724,7 +15732,7 @@ export default function Home() {
   }, [computeAutoHolePunchDepthMmForGeometry, hollowPreview, hollowingDraftEnabled, hollowingState.shellThicknessMm, scene.models]);
 
   const buildHolePunchPlacementForHit = React.useCallback((
-    base: Pick<HolePunchPlacementState, 'id' | 'modelId' | 'radiusMm' | 'depthMm' | 'depthMode'>,
+    base: Pick<HolePunchPlacementState, 'id' | 'modelId' | 'radiusMm' | 'radiusYMm' | 'depthMm' | 'depthMode'>,
     hit: THREE.Intersection,
   ): HolePunchPlacementState => {
     const localPoint = hit.object.worldToLocal(hit.point.clone());
@@ -15754,6 +15762,7 @@ export default function Home() {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       modelId,
       radiusMm: holePunchState.radiusMm,
+      radiusYMm: holePunchState.radiusYMm,
       depthMm: holePunchState.depthMm,
       depthMode: canUseAutoHolePunchDepth ? holePunchState.depthMode : 'manual',
     }, hit);
@@ -15994,6 +16003,7 @@ export default function Home() {
           ? {
               ...placement,
               radiusMm: normalizedNext.radiusMm,
+              radiusYMm: normalizedNext.radiusYMm,
               depthMm: normalizedNext.depthMode === 'auto'
                 ? computeAutoHolePunchDepthMm(placement.modelId, placement.worldPoint, placement.worldNormal)
                 : normalizedNext.depthMm,
@@ -16260,6 +16270,9 @@ export default function Home() {
             );
             const localDepthMm = worldMmToLocalMm(placement.depthMm, axisScaleFactor);
             const localRadiusMm = worldMmToLocalMm(placement.radiusMm, radialScaleFactor);
+            const localRadiusYMm = placement.radiusYMm != null
+              ? worldMmToLocalMm(placement.radiusYMm, radialScaleFactor)
+              : undefined;
 
             const surfaceCenterMm = new THREE.Vector3(
               toMm(placement.centerNorm[0], sourceBbox.min.x, sourceSize.x),
@@ -16302,6 +16315,7 @@ export default function Home() {
             return {
               centerNorm: clampedStartNorm,
               radiusMm: localRadiusMm,
+              radiusYMm: localRadiusYMm,
               direction: [axis.x, axis.y, axis.z] as [number, number, number],
               lengthMm: localDepthMm + effectiveOutsideMm,
             };
@@ -18496,6 +18510,7 @@ export default function Home() {
                       position={placement.worldPoint}
                       normal={placement.worldNormal}
                       radiusMm={placement.radiusMm}
+                      radiusYMm={placement.radiusYMm}
                       lengthMm={placement.depthMm}
                       cavityBoundaryDepthMm={holePunchCavityBoundaryDepthMm}
                       applied={appliedHolePunchPlacementIds.has(placement.id)}
@@ -18529,6 +18544,7 @@ export default function Home() {
                       position={hoverPunchPreview.worldPoint}
                       normal={hoverPunchPreview.worldNormal}
                       radiusMm={holePunchState.radiusMm}
+                      radiusYMm={holePunchState.radiusYMm}
                       lengthMm={holePunchState.depthMm}
                       cavityBoundaryDepthMm={holePunchCavityBoundaryDepthMm}
                       variant="hover"

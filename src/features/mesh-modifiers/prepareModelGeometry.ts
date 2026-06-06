@@ -118,6 +118,7 @@ function buildPunchOptionsFromPlacements(
       return {
         centerNorm,
         radiusMm: placement.radiusMm,
+        radiusYMm: placement.radiusYMm,
         direction: placement.direction,
         lengthMm: placement.depthMm,
       };

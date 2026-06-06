@@ -6,6 +6,7 @@ interface HolePunchPreviewCylinderProps {
   position: THREE.Vector3;
   normal: THREE.Vector3;
   radiusMm: number;
+  radiusYMm?: number;
   lengthMm: number;
   cavityBoundaryDepthMm?: number | null;
   variant?: 'placed' | 'selected' | 'hover';
@@ -31,6 +32,7 @@ export function HolePunchPreviewCylinder({
   position,
   normal,
   radiusMm,
+  radiusYMm,
   lengthMm,
   cavityBoundaryDepthMm = null,
   variant = 'placed',
@@ -46,9 +48,13 @@ export function HolePunchPreviewCylinder({
   const insideDepth = Math.max(0.2, lengthMm);
   const outsideDepth = PUNCH_PREVIEW_OUTSIDE_PROTRUSION_MM;
   const baseRadius = Math.max(0.1, radiusMm);
+  const effectiveRadiusY = radiusYMm != null ? Math.max(0.1, radiusYMm) : baseRadius;
   const renderRadius = applied
     ? Math.max(0.05, baseRadius - APPLIED_PREVIEW_RADIUS_INSET_MM)
     : baseRadius;
+  const renderRadiusY = applied && effectiveRadiusY > baseRadius
+    ? Math.max(0.05, effectiveRadiusY - APPLIED_PREVIEW_RADIUS_INSET_MM)
+    : effectiveRadiusY;
 
   const safeNormal = React.useMemo(() => {
     const n = normal.clone();
@@ -179,6 +185,9 @@ export function HolePunchPreviewCylinder({
     };
   }, [palette.color, palette.emissiveIntensity, palette.opacity]);
 
+  const ovalScale = renderRadius > 0.001 && renderRadiusY !== renderRadius
+    ? [1, 1, renderRadiusY / renderRadius] as [number, number, number]
+    : undefined;
   const SEGMENT_EPSILON_MM = 0.001;
   const showShellSegment = cavityAid.shellDepth > SEGMENT_EPSILON_MM;
   const showCavitySegment = cavityAid.cavityDepth > SEGMENT_EPSILON_MM;
@@ -234,6 +243,7 @@ export function HolePunchPreviewCylinder({
           position={shellDisplayPosition}
           quaternion={quaternion}
           renderOrder={insideRenderOrder}
+          scale={ovalScale}
         >
           <cylinderGeometry args={[renderRadius, renderRadius, cavityAid.shellDepth, 24, 1, false]} />
           <meshStandardMaterial
@@ -255,8 +265,8 @@ export function HolePunchPreviewCylinder({
           position={cavityDisplayPosition}
           quaternion={quaternion}
           renderOrder={insideRenderOrder}
+          scale={ovalScale}
         >
-          <cylinderGeometry args={[renderRadius, renderRadius, cavityAid.cavityDepth, 24, 1, false]} />
           <meshStandardMaterial
             color={inversePalette.color}
             emissive={inversePalette.emissive}
@@ -275,6 +285,7 @@ export function HolePunchPreviewCylinder({
         position={outsideDisplayPosition}
         quaternion={quaternion}
         renderOrder={outsideRenderOrder}
+        scale={ovalScale}
       >
         <cylinderGeometry args={[renderRadius, renderRadius, outsideDepth, 24, 1, false]} />
         <meshStandardMaterial
