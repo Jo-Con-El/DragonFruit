@@ -37,6 +37,7 @@ jobs:
        startsWith(github.event.comment.body, '@github-actions build nightly'))
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       pull-requests: write
       contents: read
     steps:
