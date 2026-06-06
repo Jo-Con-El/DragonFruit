@@ -1431,6 +1431,40 @@ fn build_hollow_output_mesh(
     shell_voxels_f: f32,
     smoothing_profile: InternalCavitySmoothingProfile,
 ) -> IndexedMesh {
+    let combined_internal_mesh = build_cavity_inner_mesh(
+        source_bbox,
+        grid,
+        solid,
+        dist,
+        keep,
+        options,
+        shell_voxels_f,
+        smoothing_profile,
+    );
+    let out_mesh = if options.preview_cavity_only {
+        combined_internal_mesh
+    } else {
+        let filtered_source =
+            filter_source_mesh_for_openings(source_mesh, options, source_bbox, grid.voxel_mm);
+        merge_meshes(&filtered_source, &combined_internal_mesh)
+    };
+
+    normalize_mesh_for_boolean(out_mesh)
+}
+
+/// Build only the internal cavity (+ infill) mesh without the outer shell.
+/// This is the portion that depends on the smoothing profile and must be
+/// rebuilt on manifold retries. The outer shell is invariant.
+fn build_cavity_inner_mesh(
+    source_bbox: &Aabb,
+    grid: &GridSpec,
+    solid: &[bool],
+    dist: &[f32],
+    keep: &[bool],
+    options: &HollowOptions,
+    shell_voxels_f: f32,
+    smoothing_profile: InternalCavitySmoothingProfile,
+) -> IndexedMesh {
     let cavity_positive = keep.to_vec();
     let cavity_negative: Vec<bool> = solid
         .iter()
@@ -1455,6 +1489,7 @@ fn build_hollow_output_mesh(
         ),
         grid.voxel_mm,
     );
+
     let infill_mesh = if matches!(options.mode, HollowMode::Infill) {
         build_smooth_infill_mesh(
             source_bbox,
@@ -1468,22 +1503,14 @@ fn build_hollow_output_mesh(
     } else {
         IndexedMesh::default()
     };
-    let combined_internal_mesh = if infill_mesh.triangles.is_empty() {
-        cavity_mesh.clone()
+
+    if infill_mesh.triangles.is_empty() {
+        cavity_mesh
     } else if cavity_mesh.triangles.is_empty() {
-        infill_mesh.clone()
+        infill_mesh
     } else {
         merge_meshes(&cavity_mesh, &infill_mesh)
-    };
-    let out_mesh = if options.preview_cavity_only {
-        combined_internal_mesh
-    } else {
-        let filtered_source =
-            filter_source_mesh_for_openings(source_mesh, options, source_bbox, grid.voxel_mm);
-        merge_meshes(&filtered_source, &combined_internal_mesh)
-    };
-
-    normalize_mesh_for_boolean(out_mesh)
+    }
 }
 
 fn polygonize_cavity_tetrahedron(
@@ -2095,6 +2122,10 @@ fn finalize_hollow_output_mesh_for_manifold(
                 return original_mesh;
             }
 
+            // Build the outer shell once — it never changes between retries.
+            let filtered_source =
+                filter_source_mesh_for_openings(source_mesh, options, source_bbox, grid.voxel_mm);
+
             let mut retry_profile = smoothing_profile;
             while let Some(reduced_profile) =
                 reduced_internal_cavity_smoothing_profile(retry_profile)
@@ -2107,8 +2138,8 @@ fn finalize_hollow_output_mesh_for_manifold(
                     retry_profile.taubin_max_step_scale,
                 );
 
-                let retry_mesh = build_hollow_output_mesh(
-                    source_mesh,
+                // Only rebuild the cavity mesh — the outer shell is cached.
+                let cavity_mesh = build_cavity_inner_mesh(
                     source_bbox,
                     grid,
                     solid,
@@ -2118,6 +2149,8 @@ fn finalize_hollow_output_mesh_for_manifold(
                     shell_voxels_f,
                     retry_profile,
                 );
+                let retry_mesh =
+                    normalize_mesh_for_boolean(merge_meshes(&filtered_source, &cavity_mesh));
 
                 if let HollowManifoldStabilization::Stabilized(mesh) =
                     stabilize_hollow_mesh_for_manifold(retry_mesh)
@@ -2131,8 +2164,7 @@ fn finalize_hollow_output_mesh_for_manifold(
                     "[dragonfruit-mesh-repair] hollow manifold stabilization: retrying hollow build without internal smoothing"
                 );
 
-                let retry_mesh = build_hollow_output_mesh(
-                    source_mesh,
+                let cavity_mesh = build_cavity_inner_mesh(
                     source_bbox,
                     grid,
                     solid,
@@ -2142,6 +2174,8 @@ fn finalize_hollow_output_mesh_for_manifold(
                     shell_voxels_f,
                     smoothing_profile.disabled(),
                 );
+                let retry_mesh =
+                    normalize_mesh_for_boolean(merge_meshes(&filtered_source, &cavity_mesh));
 
                 match stabilize_hollow_mesh_for_manifold(retry_mesh) {
                     HollowManifoldStabilization::Stabilized(mesh) => mesh,
