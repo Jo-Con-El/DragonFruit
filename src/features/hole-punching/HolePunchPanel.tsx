@@ -18,6 +18,7 @@ interface HolePunchPanelProps {
   isApplying?: boolean;
   canApply?: boolean;
   canReset?: boolean;
+  disabled?: boolean;
 }
 
 export function HolePunchPanel({
@@ -29,6 +30,7 @@ export function HolePunchPanel({
   isApplying = false,
   canApply = false,
   canReset = true,
+  disabled = false,
 }: HolePunchPanelProps) {
   const [expanded, setExpanded] = React.useState(true);
 
@@ -58,13 +60,20 @@ export function HolePunchPanel({
     color: 'var(--text-strong)',
   };
 
+  const disabledStyle: React.CSSProperties | undefined = disabled
+    ? { opacity: 0.45, filter: 'grayscale(0.7)' }
+    : undefined;
+
   return (
-    <Card>
+    <Card style={disabledStyle}>
       <CardHeader
         left={(
           <>
             <IconButton
-              onClick={() => setExpanded((prev) => !prev)}
+              onClick={() => {
+                if (disabled) return;
+                setExpanded((prev) => !prev);
+              }}
               className="!p-0.5"
               title={expanded ? 'Collapse card' : 'Expand card'}
             >
@@ -96,7 +105,7 @@ export function HolePunchPanel({
                 type="button"
                 className="ui-button ui-button-secondary !h-8 whitespace-nowrap px-1.5 text-[10px] sm:text-[11px]"
                 onClick={() => setState({ depthMode: 'auto' })}
-                disabled={isApplying || !canUseAutoDepth}
+                disabled={disabled || isApplying || !canUseAutoDepth}
                 style={state.depthMode === 'auto' ? activeModeStyle : undefined}
                 title={!canUseAutoDepth ? 'Auto depth requires a hollowed model or hollow preview.' : undefined}
               >
@@ -106,7 +115,7 @@ export function HolePunchPanel({
                 type="button"
                 className="ui-button ui-button-secondary !h-8 whitespace-nowrap px-1.5 text-[10px] sm:text-[11px]"
                 onClick={() => setState({ depthMode: 'manual' })}
-                disabled={isApplying}
+                disabled={disabled || isApplying}
                 style={state.depthMode === 'manual' ? activeModeStyle : undefined}
               >
                 Manual
@@ -125,7 +134,7 @@ export function HolePunchPanel({
                 step={0.5}
                 unit="mm"
                 ariaLabel="Hole punch depth in millimeters"
-                disabled={isApplying}
+                disabled={disabled || isApplying}
                 className="mt-1"
               />
             </div>
@@ -141,7 +150,7 @@ export function HolePunchPanel({
               step={0.1}
               unit="mm"
               ariaLabel="Hole punch diameter in millimeters"
-              disabled={isApplying}
+                disabled={disabled || isApplying}
               className="mt-1"
             />
           </div>
@@ -151,7 +160,7 @@ export function HolePunchPanel({
               type="button"
               className="ui-button ui-button-secondary flex-1 !min-h-8 px-1.5 py-1 text-[10px] sm:text-[11px] whitespace-normal text-center leading-tight disabled:opacity-60"
               onClick={onReset}
-              disabled={isApplying || !canReset}
+              disabled={disabled || isApplying || !canReset}
             >
               Reset
             </button>
@@ -159,7 +168,7 @@ export function HolePunchPanel({
               type="button"
               className="ui-button ui-button-accent flex-1 !min-h-8 px-1.5 py-1 text-[10px] sm:text-[11px] whitespace-normal text-center leading-tight disabled:opacity-60"
               onClick={onApply}
-              disabled={isApplying || !canApply}
+              disabled={disabled || isApplying || !canApply}
             >
               <span className="inline-flex items-center justify-center gap-1.5">
                 {isApplying && <Loader2 className="h-3 w-3 animate-spin" />}

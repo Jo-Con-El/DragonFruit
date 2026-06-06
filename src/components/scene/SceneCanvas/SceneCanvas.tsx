@@ -375,6 +375,7 @@ export function SceneCanvas({
   supportDragTransactionId = 0,
   renderSceneOverlays,
   customPrepareMarqueeSelection,
+  customPrepareLassoSelection,
   duplicatePreviewModel,
   duplicatePreviewTransforms,
   duplicateActivePreviewTransform,
@@ -513,6 +514,16 @@ export function SceneCanvas({
         start: { x: number; y: number };
         current: { x: number; y: number };
       },
+      helpers: {
+        projectWorldPoint: (point: THREE.Vector3) => { x: number; y: number; z: number } | null;
+      },
+    ) => string[];
+    onSelectionChange: (ids: string[]) => void;
+  };
+  customPrepareLassoSelection?: {
+    enabled: boolean;
+    resolveSelection: (
+      polygon: Array<{ x: number; y: number }>,
       helpers: {
         projectWorldPoint: (point: THREE.Vector3) => { x: number; y: number; z: number } | null;
       },
@@ -2634,6 +2645,7 @@ export function SceneCanvas({
     prepareMarqueeEnabled: Boolean(mode === 'prepare' && (onMarqueeSelectionChange || customPrepareMarqueeSelection?.enabled)),
     allowPrepareMarqueeFromHover: Boolean(customPrepareMarqueeSelection?.enabled),
     prepareMarqueePublishesModelSelectionEvents: !customPrepareMarqueeSelection?.enabled,
+    prepareMarqueeRequiresShift: !customPrepareMarqueeSelection?.enabled,
     isGizmoDragging,
     isPostGizmoInteractionGuardActive,
     hoveredModelId,
@@ -2672,6 +2684,140 @@ export function SceneCanvas({
 
     return new Set(resolveMarqueeSelectedSupportIds(marqueeSelection));
   }, [marqueeSelection, mode, resolveMarqueeSelectedSupportIds]);
+
+  const lassoPointerIdRef = React.useRef<number | null>(null);
+  const lassoPointerStartRef = React.useRef<{ x: number; y: number } | null>(null);
+  const [prepareLassoPath, setPrepareLassoPath] = React.useState<Array<{ x: number; y: number }> | null>(null);
+  const isPrepareLassoActive = prepareLassoPath !== null;
+
+  const projectPointToCanvas = React.useCallback((point: THREE.Vector3) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const camera = cameraRef.current;
+    if (!rect || !camera) return null;
+
+    const projected = point.clone().project(camera);
+    if (
+      !Number.isFinite(projected.x)
+      || !Number.isFinite(projected.y)
+      || !Number.isFinite(projected.z)
+      || projected.z < -1
+      || projected.z > 1
+    ) {
+      return null;
+    }
+
+    return {
+      x: ((projected.x + 1) * 0.5) * rect.width,
+      y: ((1 - projected.y) * 0.5) * rect.height,
+      z: projected.z,
+    };
+  }, []);
+
+  const handlePrepareLassoPointerDownCapture = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!customPrepareLassoSelection?.enabled) return false;
+    if (e.button !== 0 || e.metaKey || e.ctrlKey) return false;
+    if (isGizmoDragging || isPostGizmoInteractionGuardActive || isOrbitInteracting || spaceMouseNavigationActive) {
+      return false;
+    }
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return false;
+    const x = Math.min(rect.width, Math.max(0, e.clientX - rect.left));
+    const y = Math.min(rect.height, Math.max(0, e.clientY - rect.top));
+    lassoPointerIdRef.current = e.pointerId;
+    lassoPointerStartRef.current = { x, y };
+    setPrepareLassoPath(null);
+    return false;
+  }, [
+    containerRef,
+    customPrepareLassoSelection?.enabled,
+    isGizmoDragging,
+    isOrbitInteracting,
+    isPostGizmoInteractionGuardActive,
+    spaceMouseNavigationActive,
+    suppressNextCanvasClickRef,
+  ]);
+
+  const handlePrepareLassoPointerMoveCapture = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!customPrepareLassoSelection?.enabled) return false;
+    if (lassoPointerIdRef.current == null || e.pointerId !== lassoPointerIdRef.current) return false;
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return false;
+    const x = Math.min(rect.width, Math.max(0, e.clientX - rect.left));
+    const y = Math.min(rect.height, Math.max(0, e.clientY - rect.top));
+    const start = lassoPointerStartRef.current;
+    if (!start) return false;
+
+    setPrepareLassoPath((previous) => {
+      if (!previous || previous.length === 0) {
+        const dx = x - start.x;
+        const dy = y - start.y;
+        if ((dx * dx) + (dy * dy) < 16) {
+          return previous;
+        }
+
+        suppressNextCanvasClickRef.current = true;
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // ignore capture failures
+        }
+        return [start, { x, y }];
+      }
+
+      const last = previous[previous.length - 1];
+      if (!last) return previous;
+      const dx = x - last.x;
+      const dy = y - last.y;
+      if ((dx * dx) + (dy * dy) < 9) {
+        return previous;
+      }
+      return [...previous, { x, y }];
+    });
+
+    if (!isPrepareLassoActive) {
+      return false;
+    }
+
+    suppressNextCanvasClickRef.current = true;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.nativeEvent?.stopImmediatePropagation) e.nativeEvent.stopImmediatePropagation();
+    return true;
+  }, [containerRef, customPrepareLassoSelection?.enabled, isPrepareLassoActive, suppressNextCanvasClickRef]);
+
+  const handlePrepareLassoPointerEndCapture = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!customPrepareLassoSelection?.enabled) return false;
+    if (lassoPointerIdRef.current == null || e.pointerId !== lassoPointerIdRef.current) return false;
+
+    const path = prepareLassoPath;
+    lassoPointerIdRef.current = null;
+    lassoPointerStartRef.current = null;
+    setPrepareLassoPath(null);
+
+    if (!path || path.length < 3) {
+      return false;
+    }
+
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore release failures
+    }
+
+    customPrepareLassoSelection.onSelectionChange(
+      customPrepareLassoSelection.resolveSelection(path, {
+        projectWorldPoint: projectPointToCanvas,
+      }),
+    );
+
+    suppressNextCanvasClickRef.current = true;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.nativeEvent?.stopImmediatePropagation) e.nativeEvent.stopImmediatePropagation();
+    return true;
+  }, [customPrepareLassoSelection, prepareLassoPath, projectPointToCanvas, suppressNextCanvasClickRef]);
 
   React.useEffect(() => {
     if (mode !== 'support' || !isMarqueeSelecting) {
@@ -5051,14 +5197,29 @@ export function SceneCanvas({
     ? crossSectionCapDebugState.bottom
     : undefined;
 
+  const handleContainerPointerDownCapture = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (handlePrepareLassoPointerDownCapture(e)) return;
+    handleMarqueePointerDownCapture(e);
+  }, [handleMarqueePointerDownCapture, handlePrepareLassoPointerDownCapture]);
+
+  const handleContainerPointerMoveCapture = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (handlePrepareLassoPointerMoveCapture(e)) return;
+    handleMarqueePointerMoveCapture(e);
+  }, [handleMarqueePointerMoveCapture, handlePrepareLassoPointerMoveCapture]);
+
+  const handleContainerPointerEndCapture = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (handlePrepareLassoPointerEndCapture(e)) return;
+    endMarqueeSelection(e);
+  }, [endMarqueeSelection, handlePrepareLassoPointerEndCapture]);
+
   return (
     <div
       style={{ width: '100%', height: '100%', position: 'relative' }}
       onClick={handleCanvasClick}
-      onPointerDownCapture={handleMarqueePointerDownCapture}
-      onPointerMoveCapture={handleMarqueePointerMoveCapture}
-      onPointerUpCapture={endMarqueeSelection}
-      onPointerCancelCapture={endMarqueeSelection}
+      onPointerDownCapture={handleContainerPointerDownCapture}
+      onPointerMoveCapture={handleContainerPointerMoveCapture}
+      onPointerUpCapture={handleContainerPointerEndCapture}
+      onPointerCancelCapture={handleContainerPointerEndCapture}
       ref={containerRef}
     >
       <Canvas
@@ -6357,6 +6518,7 @@ export function SceneCanvas({
             && !(mode === 'prepare' && transformMode === 'smoothing' && smoothingBrushState.isStrokeActive)
             && !isGizmoDragging
             && !isMarqueeSelecting
+            && !customPrepareMarqueeSelection?.enabled
           }
           onStart={handleOrbitStart}
           onChange={handleOrbitChange}
@@ -6702,6 +6864,23 @@ export function SceneCanvas({
             zIndex: 45,
           }}
         />
+      )}
+
+      {prepareLassoPath && prepareLassoPath.length > 1 && (
+        <svg
+          className="pointer-events-none absolute inset-0 z-45"
+          viewBox={`0 0 ${containerRef.current?.clientWidth ?? 1} ${containerRef.current?.clientHeight ?? 1}`}
+          preserveAspectRatio="none"
+        >
+          <path
+            d={`M ${prepareLassoPath.map((point) => `${point.x} ${point.y}`).join(' L ')} Z`}
+            fill="color-mix(in srgb, var(--accent), transparent 86%)"
+            stroke="color-mix(in srgb, var(--accent), white 10%)"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        </svg>
       )}
 
       {activeBuildVolumeSettings?.enabled && activeBuildVolumeSettings.showViolationWarning && outOfBoundsModels.length > 0 && (

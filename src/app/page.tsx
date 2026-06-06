@@ -16565,22 +16565,29 @@ export default function Home() {
   }, [scene.mode, transformMgr.transformMode]);
 
   const resolveBlockedHollowVoxelMarqueeSelection = React.useCallback((
-    selection: {
-      start: { x: number; y: number };
-      current: { x: number; y: number };
-    },
+    polygon: Array<{ x: number; y: number }>,
     helpers: {
       projectWorldPoint: (point: THREE.Vector3) => { x: number; y: number; z: number } | null;
     },
   ) => {
     const preview = hollowPreview;
     const activeModel = scene.activeModel;
-    if (!preview || !activeModel) return [] as string[];
+    if (!preview || !activeModel || polygon.length < 3) return [] as string[];
 
-    const minX = Math.min(selection.start.x, selection.current.x);
-    const maxX = Math.max(selection.start.x, selection.current.x);
-    const minY = Math.min(selection.start.y, selection.current.y);
-    const maxY = Math.max(selection.start.y, selection.current.y);
+    const pointInPolygon = (x: number, y: number) => {
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+        const xi = polygon[i].x;
+        const yi = polygon[i].y;
+        const xj = polygon[j].x;
+        const yj = polygon[j].y;
+        const intersects = ((yi > y) !== (yj > y))
+          && (x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-6) + xi);
+        if (intersects) inside = !inside;
+      }
+      return inside;
+    };
+
     const modelQuaternion = quaternionFromGlobalEuler(activeModel.transform.rotation);
     const selected: string[] = [];
 
@@ -16596,7 +16603,7 @@ export default function Home() {
       localPoint.add(activeModel.transform.position);
       const projected = helpers.projectWorldPoint(localPoint);
       if (!projected) continue;
-      if (projected.x < minX || projected.x > maxX || projected.y < minY || projected.y > maxY) continue;
+      if (!pointInPolygon(projected.x, projected.y)) continue;
       selected.push(String(preview.removedVoxelIndices[instanceIndex]));
     }
 
@@ -17455,6 +17462,7 @@ export default function Home() {
                   isApplying={isApplyingHolePunch}
                   canApply={!isShellFaceSelectionPending && (isHolePunchDirty || holePunchNeedsBake)}
                   canReset={!isShellFaceSelectionPending && canResetHolePunch}
+                  disabled={hollowingEditMode}
                 />
               </>
             )}
@@ -18102,7 +18110,7 @@ export default function Home() {
             supportDragGroupRef={supportDragGroupRef}
             holdSupportDragDelta={holdSupportDragDeltaUntilSupportSync}
             supportDragTransactionId={supportDragTransactionId}
-            customPrepareMarqueeSelection={{
+            customPrepareLassoSelection={{
               enabled: Boolean(
                 scene.mode === 'prepare'
                 && transformMgr.transformMode === 'hollowing'

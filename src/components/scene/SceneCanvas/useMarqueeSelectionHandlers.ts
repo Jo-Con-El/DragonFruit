@@ -18,6 +18,7 @@ type UseMarqueeSelectionHandlersParams = {
   prepareMarqueeEnabled?: boolean;
   allowPrepareMarqueeFromHover?: boolean;
   prepareMarqueePublishesModelSelectionEvents?: boolean;
+  prepareMarqueeRequiresShift?: boolean;
   isGizmoDragging: boolean;
   isPostGizmoInteractionGuardActive: boolean;
   hoveredModelId: string | null;
@@ -40,6 +41,7 @@ export function useMarqueeSelectionHandlers({
   prepareMarqueeEnabled = false,
   allowPrepareMarqueeFromHover = false,
   prepareMarqueePublishesModelSelectionEvents = true,
+  prepareMarqueeRequiresShift = true,
   isGizmoDragging,
   isPostGizmoInteractionGuardActive,
   hoveredModelId,
@@ -79,7 +81,9 @@ export function useMarqueeSelectionHandlers({
     const canUsePrepareMarquee = mode === 'prepare' && prepareMarqueeEnabled;
     if (!canUsePrepareMarquee && mode !== 'support') return;
     if (e.button !== 0) return;
-    if (!e.shiftKey) return;
+    if (mode === 'support' || prepareMarqueeRequiresShift) {
+      if (!e.shiftKey) return;
+    }
     // Skip marquee when Cmd/Ctrl+Shift is held — that's rotation snap, not selection
     if (e.metaKey || e.ctrlKey) return;
     if (isGizmoDragging || isPostGizmoInteractionGuardActive) return;
@@ -113,6 +117,7 @@ export function useMarqueeSelectionHandlers({
     allowPrepareMarqueeFromHover,
     onActiveModelChange,
     prepareMarqueePublishesModelSelectionEvents,
+    prepareMarqueeRequiresShift,
     prepareMarqueeEnabled,
     selectedModelIds,
     spaceMouseNavigationActive,
