@@ -315,6 +315,8 @@ type HollowPreviewCacheEntry = {
   report: HollowReport;
   positions: Float32Array;
   infillPositions?: Float32Array;
+  previewGeometry?: THREE.BufferGeometry | null;
+  infillGeometry?: THREE.BufferGeometry | null;
 };
 
 type HollowingSourceEntry = {
@@ -683,6 +685,33 @@ function createGeometryFromPreviewPositions(positions: Float32Array): THREE.Buff
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
+}
+
+function disposeHollowPreviewCacheEntry(entry: HollowPreviewCacheEntry): void {
+  entry.previewGeometry?.dispose();
+  entry.infillGeometry?.dispose();
+}
+
+function isHollowPreviewGeometryCacheOwned(
+  geometry: THREE.BufferGeometry | null,
+  entries: Iterable<HollowPreviewCacheEntry>,
+): boolean {
+  if (!geometry) return false;
+  for (const entry of entries) {
+    if (entry.previewGeometry === geometry || entry.infillGeometry === geometry) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function disposeHollowPreviewGeometryIfUncached(
+  geometry: THREE.BufferGeometry | null,
+  entries: Iterable<HollowPreviewCacheEntry>,
+): void {
+  if (!geometry) return;
+  if (isHollowPreviewGeometryCacheOwned(geometry, entries)) return;
+  geometry.dispose();
 }
 
 const EMPTY_HOME_SUPPORT_COLLECTIONS_SNAPSHOT: HomeSupportCollectionsSnapshot = {
@@ -1556,7 +1585,7 @@ export default function Home() {
   const [prepareSmoothingSettingsExpanded, setPrepareSmoothingSettingsExpanded] = React.useState(true);
   const [hollowingState, setHollowingState] = React.useState<HollowingPanelState>({
     mode: 'cavity',
-    voxelResolution: 48,
+    voxelResolution: 64,
     shellThicknessMm: 2.0,
     infillMode: 'lattice',
     infillCellMm: 4.2426,
@@ -1588,6 +1617,7 @@ export default function Home() {
   const hollowPreviewDebounceTimerRef = React.useRef<number | ReturnType<typeof setTimeout> | null>(null);
   const hollowPreviewRequestSeqRef = React.useRef(0);
   const hollowPreviewResultCacheRef = React.useRef<Map<string, HollowPreviewCacheEntry>>(new Map());
+  const hollowPreviewWarmupKeyRef = React.useRef<string | null>(null);
   const [debugPrimitivesPanelVisible, setDebugPrimitivesPanelVisible] = React.useState<boolean>(false);
   const [editorContextMenuPos, setEditorContextMenuPos] = React.useState<{ x: number; y: number } | null>(null);
   const [editorContextMenuSupportTarget, setEditorContextMenuSupportTarget] = React.useState<{
@@ -1641,7 +1671,7 @@ export default function Home() {
 
   const defaultHollowingState = React.useMemo<HollowingPanelState>(() => ({
     mode: 'cavity',
-    voxelResolution: 48,
+    voxelResolution: 64,
     shellThicknessMm: 2.0,
     infillMode: 'lattice',
     infillCellMm: 4.2426,
@@ -16027,17 +16057,19 @@ export default function Home() {
   const buildHollowingOptions = React.useCallback((
     modelScale: THREE.Vector3,
     tuning?: { preview?: boolean; previewVoxelResolution?: number; previewShellThicknessMm?: number },
+    stateOverride?: HollowingPanelState,
   ): HollowOptions => {
     const preview = Boolean(tuning?.preview);
-    const effectiveHollowMode = hollowingState.mode === 'shell_open_face'
+    const state = stateOverride ?? hollowingState;
+    const effectiveHollowMode = state.mode === 'shell_open_face'
       ? 'cavity'
-      : hollowingState.mode;
+      : state.mode;
     const voxelResolution = preview
-      ? (tuning?.previewVoxelResolution ?? Math.min(hollowingState.voxelResolution, 72))
-      : hollowingState.voxelResolution;
+      ? (tuning?.previewVoxelResolution ?? Math.min(state.voxelResolution, 72))
+      : state.voxelResolution;
     const shellThicknessMmWorld = preview
-      ? (tuning?.previewShellThicknessMm ?? hollowingState.shellThicknessMm)
-      : hollowingState.shellThicknessMm;
+      ? (tuning?.previewShellThicknessMm ?? state.shellThicknessMm)
+      : state.shellThicknessMm;
 
     return {
       mode: effectiveHollowMode,
@@ -16046,16 +16078,16 @@ export default function Home() {
         shellThicknessMmWorld,
         getUniformScaleFactorForThickness(modelScale),
       ),
-      infillMode: hollowingState.infillMode,
+      infillMode: state.infillMode,
       infillCellMm: worldMmToLocalMm(
-        hollowingState.infillCellMm,
+        state.infillCellMm,
         getUniformScaleFactorForThickness(modelScale),
       ),
       infillBeamRadiusMm: worldMmToLocalMm(
-        hollowingState.infillBeamRadiusMm,
+        state.infillBeamRadiusMm,
         getUniformScaleFactorForThickness(modelScale),
       ),
-      openFace: hollowingState.openFace,
+      openFace: state.openFace,
       drainHoles: [],
       previewCavityOnly: false,
       smoothInternalSurfaces: !preview,
@@ -16069,6 +16101,163 @@ export default function Home() {
     hollowingState.infillCellMm,
     hollowingState.shellThicknessMm,
     hollowingState.voxelResolution,
+  ]);
+
+  const buildHollowPreviewRequest = React.useCallback((
+    activeModel: (typeof scene.models)[number],
+    overrideState?: HollowingPanelState,
+  ) => {
+    const previewState = overrideState ?? hollowingState;
+    const previewVoxelResolution = previewState.voxelResolution;
+    const previewShellThicknessMm = quantizePreviewShellThicknessMm(previewState.shellThicknessMm);
+    const sourceGeometry = resolveHollowPreviewSourceGeometry(activeModel);
+    const sourceGeometryKey = buildGeometryVersionKey(sourceGeometry);
+    const options: HollowOptions = {
+      ...buildHollowingOptions(activeModel.transform.scale, {
+        preview: true,
+        previewVoxelResolution,
+        previewShellThicknessMm,
+      }, previewState),
+      previewCavityOnly: true,
+    };
+    const optionsKey = JSON.stringify(options);
+    const previewKey = `${activeModel.id}::${sourceGeometryKey}::${optionsKey}`;
+
+    return {
+      sourceGeometry,
+      sourceGeometryKey,
+      options,
+      previewKey,
+    };
+  }, [
+    buildHollowingOptions,
+    hollowingState.shellThicknessMm,
+    hollowingState.voxelResolution,
+    resolveHollowPreviewSourceGeometry,
+  ]);
+
+  const cacheHollowPreviewResult = React.useCallback((
+    activeModelId: string,
+    report: HollowReport,
+    positions: Float32Array,
+    infillPositions: Float32Array | undefined,
+    previewKey: string,
+  ) => {
+    const cachedPositions = new Float32Array(positions.length);
+    cachedPositions.set(positions);
+
+    hollowPreviewResultCacheRef.current.set(previewKey, {
+      modelId: activeModelId,
+      report,
+      positions: cachedPositions,
+      infillPositions,
+      previewGeometry: null,
+      infillGeometry: null,
+    });
+
+    if (hollowPreviewResultCacheRef.current.size > 6) {
+      const oldest = hollowPreviewResultCacheRef.current.keys().next().value;
+      if (oldest != null) {
+        const evicted = hollowPreviewResultCacheRef.current.get(oldest);
+        if (evicted) {
+          disposeHollowPreviewCacheEntry(evicted);
+        }
+        hollowPreviewResultCacheRef.current.delete(oldest);
+      }
+    }
+
+    return cachedPositions;
+  }, []);
+
+  const materializeHollowPreviewCacheEntry = React.useCallback((previewKey: string) => {
+    const cached = hollowPreviewResultCacheRef.current.get(previewKey);
+    if (!cached) return null;
+
+    if (!cached.previewGeometry) {
+      cached.previewGeometry = createGeometryFromPreviewPositions(cached.positions);
+    }
+
+    if (cached.infillPositions && !cached.infillGeometry) {
+      cached.infillGeometry = createGeometryFromPreviewPositions(cached.infillPositions);
+    }
+
+    return cached;
+  }, []);
+
+  const primeHollowPreviewCache = React.useCallback(async (
+    activeModel: (typeof scene.models)[number],
+    overrideState?: HollowingPanelState,
+  ) => {
+    const { sourceGeometry, sourceGeometryKey, options, previewKey } = buildHollowPreviewRequest(activeModel, overrideState);
+
+    if (hollowPreviewResultCacheRef.current.has(previewKey) || hollowPreviewWarmupKeyRef.current === previewKey) {
+      return;
+    }
+
+    hollowPreviewWarmupKeyRef.current = previewKey;
+    try {
+      const staged = await stageHollowPreviewSource(
+        sourceGeometry,
+        `${activeModel.id}::${sourceGeometryKey}`,
+      );
+      if (!staged) {
+        return;
+      }
+
+      const result = await hollowPreviewFromCapturedSource(options);
+      if (!result) {
+        return;
+      }
+
+      cacheHollowPreviewResult(activeModel.id, result.report, result.positions, result.infillPositions, previewKey);
+
+      const scheduleMaterialize = typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
+        ? (cb: () => void) => window.requestIdleCallback(() => cb())
+        : (cb: () => void) => window.setTimeout(cb, 0);
+      scheduleMaterialize(() => {
+        try {
+          materializeHollowPreviewCacheEntry(previewKey);
+        } catch (error) {
+          console.warn('[Hollowing] Failed to materialize cached preview geometry:', error);
+        }
+      });
+    } catch (error) {
+      console.warn('[Hollowing] Warm preview prime failed:', error);
+    } finally {
+      if (hollowPreviewWarmupKeyRef.current === previewKey) {
+        hollowPreviewWarmupKeyRef.current = null;
+      }
+    }
+  }, [buildHollowPreviewRequest, cacheHollowPreviewResult, materializeHollowPreviewCacheEntry]);
+
+  const handleTransformToolbarHover = React.useCallback((mode: TransformMode | null) => {
+    if (mode === 'hollowing') {
+      if (scene.mode === 'prepare') {
+        const activeModel = scene.activeModel;
+        if (activeModel) {
+          const persistedHollowing = activeModel.meshModifiers?.hollowing;
+          const warmupState: HollowingPanelState = persistedHollowing?.enabled
+            ? {
+                mode: persistedHollowing.mode === 'shell_open_face' ? 'cavity' : persistedHollowing.mode,
+                voxelResolution: persistedHollowing.voxelResolution,
+                shellThicknessMm: persistedHollowing.shellThicknessMm,
+                infillMode: persistedHollowing.infillMode ?? defaultHollowingState.infillMode,
+                infillCellMm: persistedHollowing.infillCellMm ?? defaultHollowingState.infillCellMm,
+                infillBeamRadiusMm: persistedHollowing.infillBeamRadiusMm ?? defaultHollowingState.infillBeamRadiusMm,
+                openFace: persistedHollowing.openFace,
+              }
+            : defaultHollowingState;
+
+          void primeHollowPreviewCache(activeModel, warmupState);
+        }
+      }
+      return;
+    }
+  }, [
+    defaultHollowingState,
+    primeHollowPreviewCache,
+    scene.activeModel,
+    scene.mode,
   ]);
 
   const runHollowPreview = React.useCallback(async ({
@@ -16094,21 +16283,20 @@ export default function Home() {
       if (cached) {
         hollowPreviewResultCacheRef.current.delete(previewKey);
         hollowPreviewResultCacheRef.current.set(previewKey, cached);
-
-        const previewGeometry = createGeometryFromPreviewPositions(cached.positions);
-        const infillGeometry = cached.infillPositions
-          ? createGeometryFromPreviewPositions(cached.infillPositions)
-          : null;
+        const materialized = materializeHollowPreviewCacheEntry(previewKey) ?? cached;
+        const previewGeometry = materialized.previewGeometry ?? createGeometryFromPreviewPositions(materialized.positions);
+        const infillGeometry = materialized.infillGeometry
+          ?? (materialized.infillPositions ? createGeometryFromPreviewPositions(materialized.infillPositions) : null);
         if (hollowPreviewRequestSeqRef.current !== requestSeq) {
-          previewGeometry.dispose();
-          infillGeometry?.dispose();
+          disposeHollowPreviewGeometryIfUncached(previewGeometry, hollowPreviewResultCacheRef.current.values());
+          disposeHollowPreviewGeometryIfUncached(infillGeometry, hollowPreviewResultCacheRef.current.values());
           return;
         }
 
         setHollowPreview((previous) => {
           if (previous) {
-            previous.geometry.dispose();
-            previous.infillGeometry?.dispose();
+            disposeHollowPreviewGeometryIfUncached(previous.geometry, hollowPreviewResultCacheRef.current.values());
+            disposeHollowPreviewGeometryIfUncached(previous.infillGeometry ?? null, hollowPreviewResultCacheRef.current.values());
           }
           return {
             modelId: cached.modelId,
@@ -16142,38 +16330,32 @@ export default function Home() {
         return;
       }
 
-      const cachedPositions = new Float32Array(result.positions.length);
-      cachedPositions.set(result.positions);
+      const cachedPositions = cacheHollowPreviewResult(
+        activeModel.id,
+        result.report,
+        result.positions,
+        result.infillPositions,
+        previewKey,
+      );
+      const materialized = materializeHollowPreviewCacheEntry(previewKey);
 
-      hollowPreviewResultCacheRef.current.set(previewKey, {
-        modelId: activeModel.id,
-        report: result.report,
-        positions: cachedPositions,
-        infillPositions: result.infillPositions,
-      });
-
-      if (hollowPreviewResultCacheRef.current.size > 6) {
-        const oldest = hollowPreviewResultCacheRef.current.keys().next().value;
-        if (oldest != null) {
-          hollowPreviewResultCacheRef.current.delete(oldest);
-        }
-      }
-
-      const previewGeometry = createGeometryFromPreviewPositions(cachedPositions);
-      const infillGeometry = result.infillPositions
-        ? createGeometryFromPreviewPositions(result.infillPositions)
-        : null;
+      const previewGeometry = materialized?.previewGeometry
+        ?? createGeometryFromPreviewPositions(cachedPositions);
+      const infillGeometry = materialized?.infillGeometry
+        ?? (result.infillPositions
+          ? createGeometryFromPreviewPositions(result.infillPositions)
+          : null);
 
       if (hollowPreviewRequestSeqRef.current !== requestSeq) {
-        previewGeometry.dispose();
-        infillGeometry?.dispose();
+        disposeHollowPreviewGeometryIfUncached(previewGeometry, hollowPreviewResultCacheRef.current.values());
+        disposeHollowPreviewGeometryIfUncached(infillGeometry, hollowPreviewResultCacheRef.current.values());
         return;
       }
 
       setHollowPreview((previous) => {
         if (previous) {
-          previous.geometry.dispose();
-          previous.infillGeometry?.dispose();
+          disposeHollowPreviewGeometryIfUncached(previous.geometry, hollowPreviewResultCacheRef.current.values());
+          disposeHollowPreviewGeometryIfUncached(previous.infillGeometry ?? null, hollowPreviewResultCacheRef.current.values());
         }
         return {
           modelId: activeModel.id,
@@ -16196,7 +16378,7 @@ export default function Home() {
         setIsPreviewingHollowing(false);
       }
     }
-  }, [scene.models]);
+  }, [cacheHollowPreviewResult, scene.models]);
 
   const clearHollowPreview = React.useCallback(() => {
     hollowPreviewRequestSeqRef.current += 1;
@@ -16204,8 +16386,8 @@ export default function Home() {
     clearPendingHollowPreviewDebounce();
     setHollowPreview((previous) => {
       if (previous) {
-        previous.geometry.dispose();
-        previous.infillGeometry?.dispose();
+        disposeHollowPreviewGeometryIfUncached(previous.geometry, hollowPreviewResultCacheRef.current.values());
+        disposeHollowPreviewGeometryIfUncached(previous.infillGeometry ?? null, hollowPreviewResultCacheRef.current.values());
       }
       return null;
     });
@@ -16236,6 +16418,7 @@ export default function Home() {
 
     for (const [cacheKey, entry] of hollowPreviewResultCacheRef.current.entries()) {
       if (liveIds.has(entry.modelId)) continue;
+      disposeHollowPreviewCacheEntry(entry);
       hollowPreviewResultCacheRef.current.delete(cacheKey);
     }
   }, [scene.models]);
@@ -16246,6 +16429,9 @@ export default function Home() {
         entry.geometry.dispose();
       }
       hollowingSourceByModelIdRef.current.clear();
+      for (const entry of hollowPreviewResultCacheRef.current.values()) {
+        disposeHollowPreviewCacheEntry(entry);
+      }
       hollowPreviewResultCacheRef.current.clear();
     };
   }, []);
@@ -16269,6 +16455,45 @@ export default function Home() {
 
     setHolePunchState((previous) => ({ ...previous, depthMode: 'manual' }));
   }, [canUseAutoHolePunchDepth, holePunchState.depthMode]);
+
+  React.useEffect(() => {
+    if (scene.mode !== 'prepare' || transformMgr.transformMode === 'hollowing') {
+      return;
+    }
+
+    const activeModel = scene.activeModel;
+    if (!activeModel) {
+      return;
+    }
+
+    const persistedHollowing = activeModel.meshModifiers?.hollowing;
+    const warmupState: HollowingPanelState = persistedHollowing?.enabled
+      ? {
+          mode: persistedHollowing.mode === 'shell_open_face' ? 'cavity' : persistedHollowing.mode,
+          voxelResolution: persistedHollowing.voxelResolution,
+          shellThicknessMm: persistedHollowing.shellThicknessMm,
+          infillMode: persistedHollowing.infillMode ?? defaultHollowingState.infillMode,
+          infillCellMm: persistedHollowing.infillCellMm ?? defaultHollowingState.infillCellMm,
+          infillBeamRadiusMm: persistedHollowing.infillBeamRadiusMm ?? defaultHollowingState.infillBeamRadiusMm,
+          openFace: persistedHollowing.openFace,
+        }
+      : defaultHollowingState;
+
+    const previewRequest = buildHollowPreviewRequest(activeModel, warmupState);
+    if (hollowPreviewResultCacheRef.current.has(previewRequest.previewKey)
+      || hollowPreviewWarmupKeyRef.current === previewRequest.previewKey) {
+      return;
+    }
+
+    void primeHollowPreviewCache(activeModel, warmupState);
+  }, [
+    buildHollowPreviewRequest,
+    defaultHollowingState,
+    primeHollowPreviewCache,
+    scene.activeModel,
+    scene.mode,
+    transformMgr.transformMode,
+  ]);
 
   React.useEffect(() => {
     const activeModel = scene.activeModel;
@@ -17885,6 +18110,7 @@ export default function Home() {
               <TransformToolbar
                 mode={transformMgr.transformMode}
                 onModeChange={setTransformModeWithMirrorFinalize}
+                onModeHover={handleTransformToolbarHover}
               />
               <SnapAngleReadout />
               <RotationHintTooltip />

@@ -6,9 +6,10 @@ import { usePlatformModifier } from '@/hooks/usePlatformModifier';
 interface TransformToolbarProps {
   mode: TransformMode;
   onModeChange: (mode: TransformMode) => void;
+  onModeHover?: (mode: TransformMode | null) => void;
 }
 
-export function TransformToolbar({ mode, onModeChange }: TransformToolbarProps) {
+export function TransformToolbar({ mode, onModeChange, onModeHover }: TransformToolbarProps) {
   const [hoveredMode, setHoveredMode] = React.useState<TransformMode | null>(null);
   const modKey = usePlatformModifier();
 
@@ -29,6 +30,17 @@ export function TransformToolbar({ mode, onModeChange }: TransformToolbarProps) 
       onModeChange(next);
     });
   }, [onModeChange]);
+
+  const handleModeHoverChange = React.useCallback((next: TransformMode | null) => {
+    setHoveredMode(next);
+    onModeHover?.(next);
+  }, [onModeHover]);
+
+  const handleModeLeave = React.useCallback((modeValue: TransformMode) => {
+    const next = hoveredMode === modeValue ? null : hoveredMode;
+    setHoveredMode(next);
+    onModeHover?.(next);
+  }, [hoveredMode, onModeHover]);
 
   return (
     <div
@@ -75,8 +87,10 @@ export function TransformToolbar({ mode, onModeChange }: TransformToolbarProps) 
             <button
               key={btn.mode}
               onClick={() => handleModeClick(btn.mode)}
-              onMouseEnter={() => setHoveredMode(btn.mode)}
-              onMouseLeave={() => setHoveredMode((prev) => (prev === btn.mode ? null : prev))}
+              onMouseEnter={() => handleModeHoverChange(btn.mode)}
+              onMouseLeave={() => handleModeLeave(btn.mode)}
+              onFocus={() => handleModeHoverChange(btn.mode)}
+              onBlur={() => handleModeLeave(btn.mode)}
               className={`relative z-[1] flex w-[112px] items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-[11px] font-semibold uppercase tracking-wider transition-all duration-200 active:scale-[0.98] ${
                 active
                   ? 'scale-[1.01]'

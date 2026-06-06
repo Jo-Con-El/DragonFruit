@@ -66,7 +66,7 @@ impl Default for HollowOptions {
     fn default() -> Self {
         Self {
             mode: HollowMode::Cavity,
-            voxel_resolution: 48,
+            voxel_resolution: 64,
             shell_thickness_mm: 2.0,
             infill_mode: InfillMode::Lattice,
             infill_cell_mm: 4.2426,
@@ -2443,9 +2443,7 @@ fn build_smooth_infill_mesh(
             Vec3::new(1.0, -1.0, 1.0),
             Vec3::new(1.0, -1.0, -1.0),
         ],
-        InfillMode::Pillar => &[
-            Vec3::new(0.0, 0.0, 1.0),
-        ],
+        InfillMode::Pillar => &[Vec3::new(0.0, 0.0, 1.0)],
     };
 
     let mut soup = Vec::<f32>::new();
@@ -3728,7 +3726,7 @@ mod tests {
         let mesh = box_mesh(0.0, 10.0, false);
         let mut cavity_options = HollowOptions::default();
         cavity_options.mode = HollowMode::Cavity;
-        cavity_options.voxel_resolution = 48;
+        cavity_options.voxel_resolution = 64;
         cavity_options.shell_thickness_mm = 1.6;
         cavity_options.smooth_internal_surfaces = false;
         cavity_options.internal_chamfer_passes = 0;
