@@ -14909,7 +14909,8 @@ export default function Home() {
         const bbox = sourceGeometry.boundingBox ?? new THREE.Box3().setFromBufferAttribute(
           sourceGeometry.getAttribute('position') as THREE.BufferAttribute,
         );
-        const maxExtent = bbox.getSize(new THREE.Vector3()).length();
+        const bboxSize = bbox.getSize(new THREE.Vector3());
+        const maxExtent = Math.max(bboxSize.x, bboxSize.y, bboxSize.z);
         const options: HollowOptions = {
           mode: effectiveHollowMode,
           voxelResolution: computeVoxelResolution(hollowingState.voxelSizeMm, maxExtent),
@@ -16446,14 +16447,10 @@ export default function Home() {
     const effectiveHollowMode = state.mode === 'shell_open_face'
       ? 'cavity'
       : state.mode;
-    const computedResolution = computeVoxelResolution(state.voxelSizeMm, maxExtent);
-    const voxelResolution = preview
-      ? Math.min(computedResolution, 72)
-      : computedResolution;
+    const voxelResolution = computeVoxelResolution(state.voxelSizeMm, maxExtent);
     const shellThicknessMmWorld = preview
       ? (tuning?.previewShellThicknessMm ?? state.shellThicknessMm)
       : state.shellThicknessMm;
-    const hasCommittedBlockedVoxels = blockedHollowVoxelIndices.length > 0;
 
     return {
       mode: effectiveHollowMode,
@@ -16475,8 +16472,8 @@ export default function Home() {
       openFace: state.openFace,
       drainHoles: [],
       previewCavityOnly: false,
-      smoothInternalSurfaces: !preview || hasCommittedBlockedVoxels,
-      internalChamferPasses: !preview || hasCommittedBlockedVoxels ? 2 : 0,
+      smoothInternalSurfaces: !preview,
+      internalChamferPasses: !preview ? 2 : 0,
     };
   }, [
     hollowingState.mode,
@@ -16500,7 +16497,8 @@ export default function Home() {
     const bbox = sourceGeometry.boundingBox ?? new THREE.Box3().setFromBufferAttribute(
       sourceGeometry.getAttribute('position') as THREE.BufferAttribute,
     );
-    const maxExtent = bbox.getSize(new THREE.Vector3()).length();
+    const bboxSize = bbox.getSize(new THREE.Vector3());
+    const maxExtent = Math.max(bboxSize.x, bboxSize.y, bboxSize.z);
     const options: HollowOptions = {
       ...buildHollowingOptions(activeModel.transform.scale, maxExtent, {
         preview: true,
@@ -16970,9 +16968,10 @@ export default function Home() {
   const handleDoneHollowVoxelEditing = React.useCallback(() => {
     const nextIndices = [...editingBlockedHollowVoxelIndices].sort((a, b) => a - b);
     commitBlockedHollowVoxelIndices(nextIndices);
+    clearHollowPreview();
     setHollowingEditMode(false);
     setIsApplyingBlockersHollowing(true);
-  }, [commitBlockedHollowVoxelIndices, editingBlockedHollowVoxelIndices]);
+  }, [clearHollowPreview, commitBlockedHollowVoxelIndices, editingBlockedHollowVoxelIndices]);
 
   React.useEffect(() => {
     if (canUseAutoHolePunchDepth || holePunchState.depthMode !== 'auto') {
@@ -17080,12 +17079,23 @@ export default function Home() {
       setHollowingDraftEnabled(false);
       setHollowingState(nextHollowingPanelState);
     }
-    setBlockedHollowVoxelIndices(persistedHollowing?.blockedVoxelIndices ?? []);
+    // If the persisted data lacks voxelSizeMm (old voxelResolution format), the
+    // blocked indices were computed at a fixed resolution that doesn't map to the
+    // current voxel-size-based grid — clear them to avoid corrupt previews.
+    const blockersFromOldFormat = (
+      persistedHollowing?.blockedVoxelIndices?.length
+      && persistedHollowing.voxelSizeMm == null
+      && 'voxelResolution' in (persistedHollowing as Record<string, unknown>)
+    );
+    const persistedBlockedIndices = blockersFromOldFormat
+      ? (console.warn('[Hollowing] Cleared blockers from old voxelResolution format — incompatible with current voxel-size grid.'), [])
+      : (persistedHollowing?.blockedVoxelIndices ?? []);
+    setBlockedHollowVoxelIndices(persistedBlockedIndices);
     // Preserve edit mode state: don't reset editing indices or exit edit mode
     // when a hollowing parameter change (e.g. shell thickness or voxel resolution)
     // triggers this sync effect through the model modifier update.
     if (!hollowingEditModeRef.current) {
-      setEditingBlockedHollowVoxelIndices(persistedHollowing?.blockedVoxelIndices ?? []);
+      setEditingBlockedHollowVoxelIndices(persistedBlockedIndices);
       setHollowingEditMode(false);
     }
 
@@ -17157,7 +17167,8 @@ export default function Home() {
     const bbox = sourceGeometry.boundingBox ?? new THREE.Box3().setFromBufferAttribute(
       sourceGeometry.getAttribute('position') as THREE.BufferAttribute,
     );
-    const maxExtent = bbox.getSize(new THREE.Vector3()).length();
+    const bboxSize = bbox.getSize(new THREE.Vector3());
+    const maxExtent = Math.max(bboxSize.x, bboxSize.y, bboxSize.z);
 
     const options: HollowOptions = {
       ...buildHollowingOptions(activeModel.transform.scale, maxExtent, {
