@@ -109,12 +109,14 @@ function getDefaultOperationsForBrush(brushType: BrushType, defaultSpacing = 4.0
       type: 'minima' as const,
       enabled: isMinimaIslands || (!isPointPathOrMarker && !isLineBrush),
       suppression: {
-        enabled: !isMinimaIslands,
-        distanceMm: defaultSpacing,
+        enabled: true,
+        distanceMm: 0.8,
         suppressAgainst: ['minima'] as CustomSupportOperationType[],
       },
       spacing: {
         baseSpacingMm: defaultSpacing,
+        attemptLeafCreation: true,
+        leafInterval: 4.0,
       },
     },
     {
@@ -347,6 +349,7 @@ function initializeDefaultPlacementScripts() {
         spacing: {
           baseSpacingMm: 4.0,
           attemptLeafCreation: true,
+          leafInterval: 4.0,
         },
       }
     ]

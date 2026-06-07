@@ -1846,15 +1846,7 @@ export async function generateSupportsFromPainter(
         endSpacingMm: op.endSpacingMm,
         zFactor: op.zFactor,
         zFactorCurve: op.zFactorCurve,
-        spacing: {
-          baseSpacingMm: op.spacing.baseSpacingMm,
-          sequence: op.spacing.sequence,
-          solverMode: op.spacing.solverMode,
-          useInflectionPoints: op.spacing.useInflectionPoints,
-          infillPattern: op.spacing.infillPattern,
-          seedFromMinima: op.spacing.seedFromMinima,
-          attemptLeafCreation: op.spacing.attemptLeafCreation,
-        },
+        spacing: { ...op.spacing },
       } as any);
     }
 
@@ -1876,7 +1868,7 @@ export async function generateSupportsFromPainter(
             regionTriCount: region.triangleIds.size,
             stage: 'minima',
             attemptLeafCreation: stage.spacing.attemptLeafCreation,
-            leafInterval: stage.spacing.baseSpacingMm,
+            leafInterval: stage.spacing.leafInterval ?? stage.spacing.baseSpacingMm,
             supportPresetId: stage.supportPresetId,
           });
         }
@@ -2005,7 +1997,7 @@ export async function generateSupportsFromPainter(
                 regionTriCount: region.triangleIds.size,
                 stage: 'perimeter',
                 attemptLeafCreation: stage.spacing.attemptLeafCreation,
-                leafInterval: stage.spacing.baseSpacingMm,
+                leafInterval: stage.spacing.leafInterval ?? stage.spacing.baseSpacingMm,
                 supportPresetId: stage.supportPresetId,
               });
             }
@@ -2091,7 +2083,7 @@ export async function generateSupportsFromPainter(
               regionTriCount: region.triangleIds.size,
               stage: 'centerline',
               attemptLeafCreation: stage.spacing.attemptLeafCreation,
-              leafInterval: stage.spacing.baseSpacingMm,
+              leafInterval: stage.spacing.leafInterval ?? stage.spacing.baseSpacingMm,
               supportPresetId: stage.supportPresetId,
             });
           }
@@ -2165,7 +2157,7 @@ export async function generateSupportsFromPainter(
                     regionTriCount: region.triangleIds.size,
                     stage: 'infill',
                     attemptLeafCreation: stage.spacing.attemptLeafCreation,
-                    leafInterval: stage.spacing.baseSpacingMm,
+                    leafInterval: stage.spacing.leafInterval ?? stage.spacing.baseSpacingMm,
                     supportPresetId: stage.supportPresetId,
                   });
                 }
@@ -2213,7 +2205,7 @@ export async function generateSupportsFromPainter(
                     regionTriCount: region.triangleIds.size,
                     stage: 'infill',
                     attemptLeafCreation: stage.spacing.attemptLeafCreation,
-                    leafInterval: stage.spacing.baseSpacingMm,
+                    leafInterval: stage.spacing.leafInterval ?? stage.spacing.baseSpacingMm,
                     supportPresetId: stage.supportPresetId,
                   });
                 }
@@ -2241,7 +2233,7 @@ export async function generateSupportsFromPainter(
                 regionTriCount: region.triangleIds.size,
                 stage: 'infill',
                 attemptLeafCreation: stage.spacing.attemptLeafCreation,
-                leafInterval: stage.spacing.baseSpacingMm,
+                leafInterval: stage.spacing.leafInterval ?? stage.spacing.baseSpacingMm,
                 supportPresetId: stage.supportPresetId,
               });
             }
@@ -2284,7 +2276,7 @@ export async function generateSupportsFromPainter(
                     regionTriCount: region.triangleIds.size,
                     stage: 'infill',
                     attemptLeafCreation: stage.spacing.attemptLeafCreation,
-                    leafInterval: stage.spacing.baseSpacingMm,
+                    leafInterval: stage.spacing.leafInterval ?? stage.spacing.baseSpacingMm,
                     supportPresetId: stage.supportPresetId,
                   });
                 }

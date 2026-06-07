@@ -36,7 +36,9 @@ const SupportSpacingGauge = ({ op }: { op: CustomSupportOperation }) => {
   const tipBody = preset?.settings?.tip?.bodyDiameterMm ?? 1.2;
   const tipLength = preset?.settings?.tip?.lengthMm ?? 2.0;
   
-  const startSpacing = op.spacing.baseSpacingMm ?? 4.0;
+  const startSpacing = (op.type === 'minima' && op.spacing.attemptLeafCreation)
+    ? (op.spacing.leafInterval ?? op.spacing.baseSpacingMm ?? 4.0)
+    : (op.spacing.baseSpacingMm ?? 4.0);
   const endSpacing = typeof op.endSpacingMm === 'number' ? op.endSpacingMm : 4.0;
   const isZDensity = !!op.enableZHeightDensity;
   
@@ -103,7 +105,7 @@ const SupportSpacingGauge = ({ op }: { op: CustomSupportOperation }) => {
       }}
     >
       <div className="text-[9px] font-bold text-gray-400 mb-1 uppercase tracking-wider">
-        Real-Time Spacing &amp; Geometry Gauge
+        Tip Size &amp; Spacing Gauge
       </div>
       <svg width={width} height={height} className="overflow-visible">
         {/* Overhang Surface guide */}
@@ -163,6 +165,23 @@ const SupportSpacingGauge = ({ op }: { op: CustomSupportOperation }) => {
     </div>
   );
 };
+
+function clampSuppressionDistance(distanceMm: number, spacing: CustomSupportOperation['spacing']): number {
+  let clamped = distanceMm;
+  if (spacing.attemptLeafCreation) {
+    const leafAttempt = spacing.leafInterval ?? spacing.baseSpacingMm;
+    if (clamped > leafAttempt) {
+      clamped = leafAttempt;
+    }
+  }
+  if (spacing.attemptBranchCreation) {
+    const branchAttempt = spacing.consolidationTipDistance ?? 5.0;
+    if (clamped > branchAttempt) {
+      clamped = branchAttempt;
+    }
+  }
+  return parseFloat(clamped.toFixed(2));
+}
 
 export function SupportPipelineEditor({
   initialPipeline,
@@ -231,9 +250,15 @@ export function SupportPipelineEditor({
     }
     const nextOps = initialPipeline.map((op, idx) => {
       if (idx === index) {
+        const mergedSpacing = { ...op.spacing, ...updates };
+        const newSuppressionDistance = clampSuppressionDistance(op.suppression.distanceMm, mergedSpacing);
         return {
           ...op,
-          spacing: { ...op.spacing, ...updates },
+          spacing: mergedSpacing,
+          suppression: {
+            ...op.suppression,
+            distanceMm: newSuppressionDistance,
+          }
         };
       }
       return op;
@@ -247,9 +272,13 @@ export function SupportPipelineEditor({
     }
     const nextOps = initialPipeline.map((op, idx) => {
       if (idx === index) {
+        const mergedSuppression = { ...op.suppression, ...updates };
+        if (mergedSuppression.distanceMm !== undefined) {
+          mergedSuppression.distanceMm = clampSuppressionDistance(mergedSuppression.distanceMm, op.spacing);
+        }
         return {
           ...op,
-          suppression: { ...op.suppression, ...updates },
+          suppression: mergedSuppression,
         };
       }
       return op;
@@ -691,9 +720,7 @@ export function SupportPipelineEditor({
                             <span className="flex items-center gap-1">
                               {op.enableZHeightDensity
                                 ? 'Base Spacing (mm) [Managed by Z-Density]'
-                                : op.type === 'minima' && op.spacing.attemptLeafCreation
-                                  ? 'Leaf Search Interval (mm)'
-                                  : 'Base Spacing (mm)'}
+                                : 'Base Spacing (mm)'}
                             </span>
                             {compOp && compOp.spacing.baseSpacingMm !== op.spacing.baseSpacingMm && (
                               <span className="text-[9px] text-[#A5A6B5] font-semibold bg-black/35 px-1.5 py-0.5 rounded">
@@ -710,7 +737,8 @@ export function SupportPipelineEditor({
                             onChange={e => {
                               const val = parseFloat(e.target.value);
                               const newBase = isNaN(val) ? 0 : val;
-                              const newSuppression = newBase > 0 ? Math.max(0.1, parseFloat((newBase - 0.1).toFixed(2))) : 0.1;
+                              const rawSuppression = newBase > 0 ? Math.max(0.1, parseFloat((newBase - 0.1).toFixed(2))) : 0.1;
+                              const newSuppression = clampSuppressionDistance(rawSuppression, op.spacing);
                               const updates: Partial<CustomSupportOperation> = {
                                 isIntervalDirectlyEdited: true,
                                 spacing: {
@@ -1079,7 +1107,8 @@ export function SupportPipelineEditor({
                                 onChange={e => {
                                   const val = parseFloat(e.target.value);
                                   const newBase = isNaN(val) ? 0 : val;
-                                  const newSuppression = newBase > 0 ? Math.max(0.1, parseFloat((newBase - 0.1).toFixed(2))) : 0.1;
+                                  const rawSuppression = newBase > 0 ? Math.max(0.1, parseFloat((newBase - 0.1).toFixed(2))) : 0.1;
+                                  const newSuppression = clampSuppressionDistance(rawSuppression, op.spacing);
                                   const updates: any = {
                                     isIntervalDirectlyEdited: true,
                                     spacing: {

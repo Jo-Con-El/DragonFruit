@@ -66,13 +66,14 @@ describe('Support Painter Phase 5 - Rust Minima Scanner & TypeScript batch conso
     assert.ok(!region.triangleIds.has(1));
   });
 
-  it('should configure MinimaIslands default pipeline with only minima enabled and suppression disabled', () => {
+  it('should configure MinimaIslands default pipeline with only minima enabled and suppression enabled', () => {
     const pipeline = upgradePipeline(undefined, 'MinimaIslands', 4.0);
 
     const minimaOp = pipeline.find(op => op.type === 'minima');
     assert.ok(minimaOp, 'Minima stage operation must exist');
     assert.strictEqual(minimaOp.enabled, true, 'Minima stage must be enabled');
-    assert.strictEqual(minimaOp.suppression.enabled, false, 'Suppression must be disabled for MinimaIslands minima stage');
+    assert.strictEqual(minimaOp.suppression.enabled, true, 'Suppression must be enabled for MinimaIslands minima stage');
+    assert.strictEqual(minimaOp.suppression.distanceMm, 0.8, 'Suppression distance must be 0.8mm for MinimaIslands minima stage');
 
     const perimeterOp = pipeline.find(op => op.type === 'perimeter');
     assert.ok(!perimeterOp, 'Perimeter stage operation must not exist for MinimaIslands');

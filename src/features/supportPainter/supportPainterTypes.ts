@@ -418,16 +418,40 @@ export function upgradePipeline(
   defaultSpacing: number = 4.0
 ): CustomSupportOperation[] {
   if (ops) {
-    return ops.map(op => ({
-      ...op,
-      id: op.id || generateUuid(),
-      minimaStartInterval: op.minimaStartInterval ?? 0,     // Default to 0% Start Offset
-      minimaEndInterval: op.minimaEndInterval ?? 100,       // Default to 100% End Offset
-      endSpacingMm: op.endSpacingMm ?? defaultSpacing,      // Default to 4x trunk size
-      wrapFraction: op.wrapFraction !== undefined
-        ? (op.wrapFraction <= 1.0 ? Math.round(op.wrapFraction * 100) : op.wrapFraction)
-        : 100,
-    }));
+    return ops.map(op => {
+      const upgradedSpacing = { ...op.spacing };
+      if (op.type === 'minima') {
+        if (upgradedSpacing.attemptLeafCreation === undefined) {
+          upgradedSpacing.attemptLeafCreation = true;
+        }
+        if (upgradedSpacing.leafInterval === undefined) {
+          upgradedSpacing.leafInterval = 4.0;
+        }
+      }
+      
+      const upgradedSuppression = { ...op.suppression };
+      if (op.type === 'minima') {
+        if (upgradedSuppression.enabled === undefined) {
+          upgradedSuppression.enabled = true;
+        }
+        if (upgradedSuppression.distanceMm === undefined) {
+          upgradedSuppression.distanceMm = 0.8;
+        }
+      }
+
+      return {
+        ...op,
+        id: op.id || generateUuid(),
+        minimaStartInterval: op.minimaStartInterval ?? 0,     // Default to 0% Start Offset
+        minimaEndInterval: op.minimaEndInterval ?? 100,       // Default to 100% End Offset
+        endSpacingMm: op.endSpacingMm ?? defaultSpacing,      // Default to 4x trunk size
+        wrapFraction: op.wrapFraction !== undefined
+          ? (op.wrapFraction <= 1.0 ? Math.round(op.wrapFraction * 100) : op.wrapFraction)
+          : 100,
+        spacing: upgradedSpacing,
+        suppression: upgradedSuppression,
+      };
+    });
   }
 
   let activeBrushType = brushType;
@@ -450,14 +474,14 @@ export function upgradePipeline(
       type: 'minima',
       enabled: isMinimaIslands || (!isPointPathOrMarker && !isLineBrush),
       suppression: {
-        enabled: !isMinimaIslands,
-        distanceMm: defaultSpacing,
+        enabled: true,
+        distanceMm: 0.8,
         suppressAgainst: ['minima'],
       },
       spacing: {
         baseSpacingMm: defaultSpacing,
-        attemptLeafCreation: isMinimaIslands,
-        leafInterval: defaultSpacing,
+        attemptLeafCreation: true,
+        leafInterval: 4.0,
         attemptBranchCreation: false,
         branchInterval: defaultSpacing,
         branchBlendFactor: 0.5,
