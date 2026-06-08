@@ -15163,6 +15163,14 @@ export default function Home() {
       }
     }
 
+    // Clear cavity geometry and disable interior view
+    const existingCavity = cavityGeometryByModelIdRef.current.get(activeModel.id);
+    if (existingCavity) {
+      existingCavity.geometry.dispose();
+      cavityGeometryByModelIdRef.current.delete(activeModel.id);
+    }
+    setInteriorView(false);
+
     setHollowingDraftEnabled(false);
     setHollowingEditMode(false);
     setBlockedHollowVoxelIndices([]);
