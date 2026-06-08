@@ -1985,10 +1985,7 @@ export function calculateSmartPlacementV2(
                 tipProfile: input.tipProfile,
             },
             buildNearestCandidateNodeKeys,
-            subGridOffset: !settings.grid.enabled ? {
-                x: input.tipPos.x - Math.round(input.tipPos.x / FINE_ASTAR_STEP_MM) * FINE_ASTAR_STEP_MM,
-                y: input.tipPos.y - Math.round(input.tipPos.y / FINE_ASTAR_STEP_MM) * FINE_ASTAR_STEP_MM,
-            } : null,
+            subGridOffset: null,
             rootsDiskBlockedAt,
             segmentBlockedBetween: raycastSegmentBlockedBetween,
             contactConeBlockedAt,
@@ -2030,10 +2027,7 @@ export function calculateSmartPlacementV2(
                 tipProfile: input.tipProfile,
             },
             buildNearestCandidateNodeKeys,
-            subGridOffset: !settings.grid.enabled ? {
-                x: input.tipPos.x - Math.round(input.tipPos.x / FINE_ASTAR_STEP_MM) * FINE_ASTAR_STEP_MM,
-                y: input.tipPos.y - Math.round(input.tipPos.y / FINE_ASTAR_STEP_MM) * FINE_ASTAR_STEP_MM,
-            } : null,
+            subGridOffset: null,
             rootsDiskBlockedAt,
             segmentBlockedBetween: raycastSegmentBlockedBetween,
             contactConeBlockedAt,
@@ -2067,10 +2061,7 @@ export function calculateSmartPlacementV2(
                 tipProfile: input.tipProfile,
             },
             buildNearestCandidateNodeKeys,
-            subGridOffset: !settings.grid.enabled ? {
-                x: input.tipPos.x - Math.round(input.tipPos.x / FINE_ASTAR_STEP_MM) * FINE_ASTAR_STEP_MM,
-                y: input.tipPos.y - Math.round(input.tipPos.y / FINE_ASTAR_STEP_MM) * FINE_ASTAR_STEP_MM,
-            } : null,
+            subGridOffset: null,
             rootsDiskBlockedAt,
             segmentBlockedBetween: raycastSegmentBlockedBetween,
             contactConeBlockedAt,
@@ -2438,7 +2429,7 @@ export function calculateSmartPlacementV2(
         ? pathJoints[pathJoints.length - 1]
         : { x: socketPos.x, y: socketPos.y, z: socketPos.z };
     const finalSegmentLateralMm = distanceXY(lastPointBeforeBase, bestBase.rootTopTarget);
-    const FINAL_SEGMENT_STRAIGHTEN_THRESHOLD_MM = 1.5;
+    const FINAL_SEGMENT_STRAIGHTEN_THRESHOLD_MM = !settings.grid.enabled ? 0.05 : 1.5;
     if (finalSegmentLateralMm > FINAL_SEGMENT_STRAIGHTEN_THRESHOLD_MM) {
         const straightDownBase: Vec3 = {
             x: lastPointBeforeBase.x,
