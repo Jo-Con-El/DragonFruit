@@ -2751,7 +2751,7 @@ export function calculateSmartPlacementV2(
         console.log(
             `[SmartPlacementV2] PLACED support — ${finalJoints.length} joint(s)${hasRise ? ' ⚠️ HAS UPWARD SEGMENTS' : ' ✅ monotonic'}\n` +
             `  socket:  (${socketPos.x.toFixed(2)},${socketPos.y.toFixed(2)},${socketPos.z.toFixed(2)})\n` +
-            `  rawJoints(pre-filter): [${result.path.slice(1,-1).map(p=>`(${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)})`).join(' ')}]\n` +
+            `  rawJoints(pre-filter): [${gfResult.path.slice(1,-1).map(p=>`(${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)})`).join(' ')}]\n` +
             `  simplifiedJoints: [${simplifiedJoints.map(p=>`(${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)})`).join(' ')}]\n` +
             `  finalJoints: [${finalJoints.map(p=>`(${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)})`).join(' ')}]\n` +
             `  base/rootTop: (${finalBase.basePos.x.toFixed(2)},${finalBase.basePos.y.toFixed(2)}) rootTopZ=${finalBase.rootTopTarget.z.toFixed(2)}\n` +
