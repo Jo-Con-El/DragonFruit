@@ -15,7 +15,7 @@ function makeOpenSdf(overrides?: Partial<Pick<SDFCache, 'distanceAt' | 'isBlocke
         isBlocked: () => false,
         segmentBlocked: () => false,
         ...overrides,
-    } as SDFCache;
+    } as unknown as SDFCache;
 }
 
 test('buildStraightSocketRescueCandidates expands outward from the blocked socket', () => {

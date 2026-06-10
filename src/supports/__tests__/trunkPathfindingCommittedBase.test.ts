@@ -12,7 +12,7 @@ function makeOpenSdf(overrides?: Partial<Pick<SDFCache, 'distanceAt' | 'isBlocke
         isBlocked: () => false,
         segmentBlocked: () => false,
         ...overrides,
-    } as SDFCache;
+    } as unknown as SDFCache;
 }
 
 test('resolveCommittedBaseCandidate falls through to a farther snapped node when the nearest base is blocked', () => {

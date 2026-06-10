@@ -337,6 +337,24 @@ export function gridAStar(
     const goalValidator = opts.goalValidator;
     const goalPlaneHeuristic = (qz: number): number => Math.max(0, qz - gqz) * step;
 
+    // Heightmap-aware heuristic: if the SDF has a pre-computed clearance
+    // heightmap, use getBlockedZ for a tighter admissible estimate.
+    const heightmapHeuristic = sdf.hasHeightmap
+        ? (qx: number, qy: number, qz: number): number => {
+            const wx = qx * step;
+            const wy = qy * step;
+            const wz = qz * step;
+            const blockedZ = sdf.getBlockedZ(wx, wy);
+            if (!isFinite(blockedZ) || wz > blockedZ) {
+                // Column is clear — straight drop is viable
+                return Math.max(0, wz - goalZ);
+            }
+            // At or below blocked Z — need lateral routing.
+            // Minimum admissible estimate: vertical drop + one diagonal cell.
+            return Math.max(0, wz - goalZ) + step * 1.414;
+        }
+        : null;
+
     const safetyClearance = opts.shaftRadius ?? (clearance * 0.5);
 
     // Per-neighbor static costs (independent of node position).
@@ -427,7 +445,9 @@ export function gridAStar(
         }
     } else {
         const startKey = cellKeyInt(sqx, sqy, sqz);
-        const h = goalPlaneHeuristic(sqz);
+        const h = heightmapHeuristic
+            ? heightmapHeuristic(sqx, sqy, sqz)
+            : goalPlaneHeuristic(sqz);
         openSet = [];
         heapPushOrUpdate(openSet, openSetIndexByKey, { key: startKey, x: sqx, y: sqy, z: sqz, g: 0, f: h }, compareHeapEntries);
         nodeState.set(startKey, { g: 0, closed: false });
@@ -523,6 +543,14 @@ export function gridAStar(
 
     function chooseStraightDescentIndex(current: AStarEntry, cwx: number, cwy: number, cwz: number): number {
         const minStraightClearance = clearance * STRAIGHT_DESCENT_CLEARANCE_FACTOR;
+
+        // Heightmap fast-path: if the whole column is clear, all pure-down
+        // neighbors are valid — pick the longest stride immediately.
+        if (sdf.hasHeightmap && sdf.columnIsClear(cwx, cwy, cwz)) {
+            // Return the longest pure-down stride (largest |dz|)
+            return PURE_DOWN_PRIORITY_INDICES[0];
+        }
+
         for (const ni of PURE_DOWN_PRIORITY_INDICES) {
             const n = NEIGHBOR_RUNTIME[ni];
             let nz = current.z + n.dz;
@@ -593,8 +621,11 @@ export function gridAStar(
                 break;
             }
         } else if (currentDist >= clearance) {
-            const dropBlocked = sdf.segmentBlocked(cwx, cwy, cwz, cwx, cwy, goalZ, clearance);
-            if (!dropBlocked) {
+            // Heightmap O(1) check first, fall back to SDF segment check
+            const dropClear = sdf.hasHeightmap
+                ? sdf.columnIsClear(cwx, cwy, cwz)
+                : !sdf.segmentBlocked(cwx, cwy, cwz, cwx, cwy, goalZ, clearance);
+            if (dropClear) {
                 const parentKey = currentState.cameFrom;
                 const parentPos = parentKey === undefined
                     ? null
@@ -678,7 +709,9 @@ export function gridAStar(
                 nodeState.set(nKey, { g: tentativeG, cameFrom: current.key, closed: false });
             }
 
-            const h = goalPlaneHeuristic(nz);
+            const h = heightmapHeuristic
+                ? heightmapHeuristic(nx, ny, nz)
+                : goalPlaneHeuristic(nz);
             heapPushOrUpdate(openSet, openSetIndexByKey, { key: nKey, x: nx, y: ny, z: nz, g: tentativeG, f: tentativeG + h }, compareHeapEntries);
         }
     }
