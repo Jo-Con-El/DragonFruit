@@ -1805,6 +1805,8 @@ export default function Home() {
   const printingBaseResinMlCacheRef = React.useRef<Map<string, number | null>>(new Map());
   const printingInFlightBaseResinMlRef = React.useRef<Map<string, Promise<number | null>>>(new Map());
   const lastCompletedResinEstimateSignatureRef = React.useRef<string>('');
+  const [showUnappliedHolePunchModal, setShowUnappliedHolePunchModal] = React.useState(false);
+  const unappliedHolePunchResolveRef = React.useRef<((action: 'apply' | 'skip') => void) | null>(null);
   const [showPrintingResliceModal, setShowPrintingResliceModal] = React.useState(false);
   const [showSliceCompletedModal, setShowSliceCompletedModal] = React.useState(false);
   const [sliceCompletedModalData, setSliceCompletedModalData] = React.useState<{
@@ -13323,6 +13325,15 @@ export default function Home() {
     if (scene.mode !== 'export') return;
     if (scene.models.length === 0) return;
 
+    // Check for unapplied hole punches and warn the user.
+    const hasUnapplied = scene.models.some((model) => {
+      const p = model.meshModifiers?.holePunches;
+      return p && p.length > 0 && !model.meshModifiers?.holePunchesBakedIntoGeometry;
+    });
+    if (hasUnapplied && unappliedHolePunchResolveRef.current === null) {
+      setShowUnappliedHolePunchModal(true);
+    }
+
     // In export mode, select all visible models for tinting
     const visibleModels = scene.models.filter((model) => model.visible);
     const visibleIds = visibleModels.length > 0 
@@ -18687,11 +18698,11 @@ export default function Home() {
                 ? scene.models.find((model) => model.id === hollowPreview.modelId) ?? null
                 : null;
               const activeModelId = scene.activeModel?.id ?? null;
-              const showHolePunchMarkers = (
+              const isInHollowingTool = scene.mode === 'prepare' && transformMgr.transformMode === 'hollowing';
+              const showDraftHolePunchMarkers = (
                 interiorView
                 || (
-                  scene.mode === 'prepare'
-                  && transformMgr.transformMode === 'hollowing'
+                  isInHollowingTool
                   && !isShellFaceSelectionPending
                   && !hollowingEditMode
                 )
@@ -18714,8 +18725,12 @@ export default function Home() {
                 <>
                   {ghostData && LysGhostOverlay ? <LysGhostOverlay data={ghostData} visible /> : null}
 
-                  {showHolePunchMarkers && placedPunches.map((placement) => {
-                    const isInHollowingTool = scene.mode === 'prepare' && transformMgr.transformMode === 'hollowing';
+                  {placedPunches.map((placement) => {
+                    const isApplied = appliedHolePunchPlacementIds.has(placement.id);
+                    // Draft markers (blue, unapplied) always show so the user
+                    // can see what needs applying. Applied markers (orange/grey)
+                    // only show in prepare/hollowing mode.
+                    if (isApplied && !showDraftHolePunchMarkers) return null;
                     return (
                       <HolePunchPreviewCylinder
                         key={`hole-punch-placement-${placement.id}`}
@@ -18725,7 +18740,7 @@ export default function Home() {
                         radiusYMm={placement.radiusYMm}
                         lengthMm={placement.depthMm}
                         cavityBoundaryDepthMm={holePunchCavityBoundaryDepthMm}
-                        applied={appliedHolePunchPlacementIds.has(placement.id)}
+                        applied={isApplied}
                         variant={isInHollowingTool && selectedHolePunchPlacementIdSet.has(placement.id)
                           ? 'selected'
                           : isInHollowingTool && placement.id === hoveredHolePunchPlacementId
@@ -18754,7 +18769,7 @@ export default function Home() {
                     );
                   })}
 
-                  {showHolePunchMarkers && hoverPunchPreview && (
+                  {showDraftHolePunchMarkers && hoverPunchPreview && (
                     <HolePunchPreviewCylinder
                       key="hole-punch-hover-preview"
                       position={hoverPunchPreview.worldPoint}
@@ -19205,6 +19220,59 @@ export default function Home() {
         onClose={() => setSupportsInfoModelId(null)}
         model={scene.models.find((m) => m.id === supportsInfoModelId) ?? null}
       />
+
+      <StructuredDialogModal
+        open={showUnappliedHolePunchModal}
+        ariaLabel="Unapplied hole punches"
+        title="Unapplied Holes"
+        subtitle="Some models have unapplied hole punches"
+        icon={<AlertTriangle className="h-4 w-4" />}
+        iconTone="warning"
+        closeAriaLabel="Close"
+        onClose={() => {
+          setShowUnappliedHolePunchModal(false);
+          unappliedHolePunchResolveRef.current?.('skip');
+          unappliedHolePunchResolveRef.current = null;
+        }}
+        actions={(
+          <>
+            <button
+              type="button"
+              className="ui-button ui-button-secondary !h-9 px-3 text-xs"
+              onClick={() => {
+                setShowUnappliedHolePunchModal(false);
+                unappliedHolePunchResolveRef.current?.('skip');
+                unappliedHolePunchResolveRef.current = null;
+              }}
+            >
+              Continue Without
+            </button>
+            <button
+              type="button"
+              className="ui-button ui-button-accent !h-9 px-3 text-xs"
+              onClick={() => {
+                setShowUnappliedHolePunchModal(false);
+                unappliedHolePunchResolveRef.current = null;
+                // Defer so the modal closes before apply starts.
+                setTimeout(() => { handleApplyHolePunch(); }, 0);
+              }}
+            >
+              Apply Now
+            </button>
+          </>
+        )}
+      >
+        <div className="space-y-2">
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+            One or more models have hole punches that haven&apos;t been applied.
+            Hole punches must be baked into the geometry before slicing or they
+            will not appear in the output.
+          </p>
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+            <strong>Do you want to apply them now?</strong>
+          </p>
+        </div>
+      </StructuredDialogModal>
 
       <DestructiveTransformModal
         isOpen={pendingDestructiveTransform !== null}
