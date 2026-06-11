@@ -204,6 +204,18 @@ export function TransformGizmo({
 
   const rotArray: [number, number, number] = [rotEuler.x, rotEuler.y, rotEuler.z];
 
+  // Precompute world-space axis directions from the gizmo rotation so that
+  // GizmoMove can use them instead of hardcoded world axes. This makes the
+  // drag delta respect the visual rotation of the gizmo.
+  const worldAxisDirs = React.useMemo(() => {
+    const quat = new THREE.Quaternion().setFromEuler(rotEuler);
+    return {
+      x: new THREE.Vector3(1, 0, 0).applyQuaternion(quat),
+      y: new THREE.Vector3(0, 1, 0).applyQuaternion(quat),
+      z: new THREE.Vector3(0, 0, 1).applyQuaternion(quat),
+    };
+  }, [rotEuler.x, rotEuler.y, rotEuler.z]);
+
   React.useEffect(() => {
     if (!gizmoRootRef.current) return;
 
@@ -470,6 +482,7 @@ export function TransformGizmo({
           {isAxisAllowed('x') && shouldRenderPart('axis-x') && (
             <GizmoMove
               axis="x"
+              worldAxisDir={worldAxisDirs.x}
               isHovered={!suppressHover && hoveredPart === 'axis-x'}
               isActive={activePart === 'axis-x'}
               isDimmed={isDimmed('axis-x')}
@@ -493,6 +506,7 @@ export function TransformGizmo({
           {isAxisAllowed('y') && shouldRenderPart('axis-y') && (
             <GizmoMove
               axis="y"
+              worldAxisDir={worldAxisDirs.y}
               isHovered={!suppressHover && hoveredPart === 'axis-y'}
               isActive={activePart === 'axis-y'}
               isDimmed={isDimmed('axis-y')}
@@ -516,6 +530,7 @@ export function TransformGizmo({
           {isAxisAllowed('z') && shouldRenderPart('axis-z') && (
             <GizmoMove
               axis="z"
+              worldAxisDir={worldAxisDirs.z}
               isHovered={!suppressHover && hoveredPart === 'axis-z'}
               isActive={activePart === 'axis-z'}
               isDimmed={isDimmed('axis-z')}

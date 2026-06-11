@@ -23,6 +23,14 @@ interface GizmoMoveProps {
   moveHandleBidirectional?: boolean;
   moveHandleLengthScale?: number;
   moveHandleThicknessScale?: number;
+  /**
+   * World-space direction for this axis. When the gizmo parent group is
+   * rotated, the hardcoded local-axis direction no longer matches the
+   * visual arrow. Pass the world-space direction computed from the
+   * gizmo's rotation to keep the drag axis aligned with the visual arrow.
+   * Falls back to world X/Y/Z when not provided (existing behavior).
+   */
+  worldAxisDir?: THREE.Vector3;
   onDragStart: () => boolean | void;
   onDrag: (delta: THREE.Vector3) => void;
   onDragEnd: () => void;
@@ -48,6 +56,7 @@ export function GizmoMove({
   moveHandleBidirectional = false,
   moveHandleLengthScale = 1.0,
   moveHandleThicknessScale = 1.0,
+  worldAxisDir,
   onDragStart,
   onDrag,
   onDragEnd,
@@ -123,10 +132,18 @@ export function GizmoMove({
     const raycaster = raycasterRef.current;
     raycaster.setFromCamera(ndc, camera);
 
+    // Use the world-space axis direction if provided (rotated gizmo),
+    // otherwise fall back to the hardcoded world axis (existing behavior).
     const axisDir = scratchAxisDirRef.current;
-    if (axis === 'x') axisDir.set(1, 0, 0);
-    else if (axis === 'y') axisDir.set(0, 1, 0);
-    else axisDir.set(0, 0, 1);
+    if (worldAxisDir) {
+      axisDir.copy(worldAxisDir);
+    } else if (axis === 'x') {
+      axisDir.set(1, 0, 0);
+    } else if (axis === 'y') {
+      axisDir.set(0, 1, 0);
+    } else {
+      axisDir.set(0, 0, 1);
+    }
 
     // Closest points between the infinite drag axis line and pointer ray.
     // Uses the FIXED drag origin (captured at pointer-down) as the axis reference
@@ -147,8 +164,9 @@ export function GizmoMove({
 
     return ((axisDotRay * rayDotAxisToRay) - axisDotAxisToRay) / denom;
   // gizmoPosition intentionally excluded — we use dragAxisOriginRef (stable).
+  // worldAxisDir intentionally excluded — it's captured via closure ref or prop.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [axis, camera, gl]);
+  }, [axis, camera, gl, worldAxisDir]);
 
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     if (e.button === 2) return;
@@ -184,11 +202,14 @@ export function GizmoMove({
     onPointerLeave();
   };
 
+  // World-space axis direction. Falls back to hardcoded world axis when
+  // worldAxisDir prop is not provided (existing behavior with no rotation).
   const axisDirection = useMemo(() => {
+    if (worldAxisDir) return worldAxisDir.clone();
     if (axis === 'x') return new THREE.Vector3(1, 0, 0);
     if (axis === 'y') return new THREE.Vector3(0, 1, 0);
     return new THREE.Vector3(0, 0, 1);
-  }, [axis]);
+  }, [axis, worldAxisDir]);
 
   useEffect(() => {
     if (!isDragging) return;

@@ -42,6 +42,7 @@ import { MeshSmoothingBrushCursor } from '@/features/mesh-smoothing/MeshSmoothin
 import { HollowingPanel, type HollowingPanelState } from '../features/hollowing';
 import { HolePunchPanel, type HolePunchPanelState } from '../features/hole-punching/HolePunchPanel';
 import { HolePunchPreviewCylinder } from '@/features/hole-punching/HolePunchPreviewCylinder';
+import { HolePunchGizmo } from '@/features/hole-punching/HolePunchGizmo';
 import { PlaceOnFaceTool } from '@/features/placeOnFace/PlaceOnFaceTool';
 import { MirrorTool } from '@/features/mirror/MirrorTool';
 import { bakeWithFlips } from '@/features/mirror/logic/bakeWithFlips';
@@ -16057,6 +16058,40 @@ export default function Home() {
     }
   }, [persistHolePunchPlacementsForModel, scene.activeModel]);
 
+  /**
+   * Gizmo-based placement move — applies the delta directly without snapping
+   * to surface normals, giving the user precise axis-constrained control.
+   */
+  const holePunchGizmoDragRef = React.useRef<{ placementId: string } | null>(null);
+
+  const handleHolePunchGizmoMoveStart = React.useCallback((placementId: string) => {
+    holePunchGizmoDragRef.current = { placementId };
+  }, []);
+
+  const handleHolePunchGizmoMove = React.useCallback((
+    placementId: string,
+    delta: THREE.Vector3,
+  ) => {
+    if (!holePunchGizmoDragRef.current || holePunchGizmoDragRef.current.placementId !== placementId) return;
+
+    setHolePunchPlacements((previous) => previous.map((placement) => {
+      if (placement.id !== placementId) return placement;
+      return {
+        ...placement,
+        worldPoint: placement.worldPoint.clone().add(delta),
+        localPoint: placement.localPoint.clone().add(delta),
+      };
+    }));
+  }, []);
+
+  const handleHolePunchGizmoMoveEnd = React.useCallback((placementId: string) => {
+    holePunchGizmoDragRef.current = null;
+    const activeModel = scene.activeModel;
+    if (activeModel) {
+      persistHolePunchPlacementsForModel(activeModel, holePunchPlacementsRef.current);
+    }
+  }, [persistHolePunchPlacementsForModel, scene.activeModel]);
+
   const handleDeleteSelectedHolePunchPlacement = React.useCallback(() => {
     const activeModel = scene.activeModel;
     if (!activeModel || selectedHolePunchPlacementIds.length === 0) return;
@@ -18786,6 +18821,22 @@ export default function Home() {
                       variant="hover"
                     />
                   )}
+
+                  {isInHollowingTool && selectedHolePunchPlacementIds.length === 1 && (() => {
+                    const selectedPlacement = placedPunches.find(
+                      (p) => selectedHolePunchPlacementIdSet.has(p.id),
+                    );
+                    if (!selectedPlacement) return null;
+                    return (
+                      <HolePunchGizmo
+                        key={`hole-punch-gizmo-${selectedPlacement.id}`}
+                        placement={selectedPlacement}
+                        onMoveStart={() => handleHolePunchGizmoMoveStart(selectedPlacement.id)}
+                        onMove={(delta) => handleHolePunchGizmoMove(selectedPlacement.id, delta)}
+                        onMoveEnd={() => handleHolePunchGizmoMoveEnd(selectedPlacement.id)}
+                      />
+                    );
+                  })()}
 
                   {hollowPreview && previewModel && hollowingEditMode && !(isHollowingApplied && !isHollowingDirty) && (
                     <group
