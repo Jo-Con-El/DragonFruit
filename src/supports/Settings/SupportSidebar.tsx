@@ -624,7 +624,7 @@ export function SupportSidebar() {
         </div>
     );
 
-    const sectionScrollClass = 'flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1';
+    const sectionScrollClass = 'flex-1 min-h-0 overflow-y-auto custom-scrollbar';
     const shouldUseOverflowCompactMode = OVERFLOW_COMPACT_KIND_SET.has(activeKind) && trunkCompactByOverflow;
     const shouldUseCompactTrunkLayout = activeKind === 'trunk' && shouldUseOverflowCompactMode;
     const hasFloatingTrunkPreviewTrigger = POPUP_PREVIEW_KIND_SET.has(activeKind)
@@ -1221,11 +1221,11 @@ export function SupportSidebar() {
                                                 </div>
                                             ) : (
                                                 <div className="flex gap-2 items-stretch">
-                                                    <div className="flex-1 min-w-0 flex flex-col">
+                                                    <div className="w-1/2 min-w-0 flex flex-col">
                                                         {renderPreviewBox('flex-1 min-h-[340px]')}
                                                     </div>
 
-                                                    <div className="flex-1 min-w-0 rounded-md border p-2" style={SECTION_CARD_STYLE}>
+                                                    <div className="w-1/2 min-w-0 rounded-md border p-2" style={SECTION_CARD_STYLE}>
                                                         {supportGeometryFields}
                                                     </div>
                                                 </div>
