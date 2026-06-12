@@ -17458,12 +17458,21 @@ export default function Home() {
       cavityGeometryByModelIdRef.current.delete(modelId);
     }
 
+    // If the active model's cavity geometry was just removed, exit interior view
+    // so the user doesn't get stuck with no way to toggle it off.
+    if (
+      interiorView &&
+      (!scene.activeModel || !cavityGeometryByModelIdRef.current.has(scene.activeModel.id))
+    ) {
+      setInteriorView(false);
+    }
+
     for (const [cacheKey, entry] of hollowPreviewResultCacheRef.current.entries()) {
       if (liveIds.has(entry.modelId)) continue;
       disposeHollowPreviewCacheEntry(entry);
       hollowPreviewResultCacheRef.current.delete(cacheKey);
     }
-  }, [scene.models]);
+  }, [scene.models, interiorView, setInteriorView]);
 
   // Restore cavity geometry from persisted data for models with baked hollowing.
   React.useEffect(() => {
