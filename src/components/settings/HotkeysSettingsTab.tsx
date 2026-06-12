@@ -30,21 +30,27 @@ const SECTION_GROUPS: Array<{
   categories: string[];
 }> = [
   {
-    id: 'navigation',
-    title: 'Navigation & Workspace',
-    description: 'Focus, projection, and canvas tool switching.',
-    categories: ['CAMERA', 'CANVAS'],
+    id: 'global',
+    title: 'Global',
+    description: 'Camera, focus, and viewport shortcuts available across all workspaces.',
+    categories: ['CAMERA'],
+  },
+  {
+    id: 'scene',
+    title: 'Prepare',
+    description: 'Canvas tool switching and scene arrangement shortcuts.',
+    categories: ['CANVAS'],
   },
   {
     id: 'supports',
-    title: 'Support Authoring',
-    description: 'Placement modes and support workflow shortcuts.',
+    title: 'Supports',
+    description: 'Support authoring workflow shortcuts.',
     categories: ['SUPPORTS'],
   },
   {
     id: 'presets',
-    title: 'Preset Actions',
-    description: 'Quick-apply detail, structure, anchor, and custom presets.',
+    title: 'Support Presets',
+    description: 'Quick-apply support preset shortcuts.',
     categories: ['PRESETS'],
   },
   {
@@ -208,38 +214,16 @@ export function HotkeysSettingsTab() {
     [configurableSections],
   );
 
-  const navigationSection = useMemo(
-    () => nonRotationSections.find((section) => section.id === 'navigation') ?? null,
-    [nonRotationSections],
-  );
-
-  const supportSection = useMemo(
-    () => nonRotationSections.find((section) => section.id === 'supports') ?? null,
-    [nonRotationSections],
-  );
-
-  const presetSection = useMemo(
-    () => nonRotationSections.find((section) => section.id === 'presets') ?? null,
-    [nonRotationSections],
-  );
-
-  const extraNonRotationSections = useMemo(
-    () => nonRotationSections.filter((section) => !['navigation', 'supports', 'presets'].includes(section.id)),
-    [nonRotationSections],
-  );
-
-  const [firstExtraSection, ...remainingExtraSections] = extraNonRotationSections;
-
-  const remainingExtraRows = useMemo(() => {
-    const rows: Array<[typeof remainingExtraSections[number] | null, typeof remainingExtraSections[number] | null]> = [];
-    for (let index = 0; index < remainingExtraSections.length; index += 2) {
+  const sectionRows = useMemo(() => {
+    const rows: Array<[typeof nonRotationSections[number] | null, typeof nonRotationSections[number] | null]> = [];
+    for (let index = 0; index < nonRotationSections.length; index += 2) {
       rows.push([
-        remainingExtraSections[index] ?? null,
-        remainingExtraSections[index + 1] ?? null,
+        nonRotationSections[index] ?? null,
+        nonRotationSections[index + 1] ?? null,
       ]);
     }
     return rows;
-  }, [remainingExtraSections]);
+  }, [nonRotationSections]);
 
   const renderConfigSection = (section: {
     id: string;
@@ -317,28 +301,14 @@ export function HotkeysSettingsTab() {
 
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
         <div className="space-y-2.5">
-          {(navigationSection || supportSection) && (
-            <div className="grid gap-2.5 lg:grid-cols-2 lg:items-stretch">
-              {navigationSection ? renderConfigSection(navigationSection) : <div />}
-              {supportSection ? renderConfigSection(supportSection) : <div />}
-            </div>
-          )}
-
-          {(presetSection || firstExtraSection) && (
-            <div className="grid gap-2.5 lg:grid-cols-2 lg:items-stretch">
-              {presetSection ? renderConfigSection(presetSection) : <div />}
-              {firstExtraSection ? renderConfigSection(firstExtraSection) : <div />}
-            </div>
-          )}
-
-          {remainingExtraRows.map(([leftSection, rightSection], index) => (
-            <div key={`extra-row-${index}`} className="grid gap-2.5 lg:grid-cols-2 lg:items-stretch">
+          {sectionRows.map(([leftSection, rightSection], index) => (
+            <div key={`section-row-${index}`} className="grid gap-2.5 lg:grid-cols-2">
               {leftSection ? renderConfigSection(leftSection) : <div />}
               {rightSection ? renderConfigSection(rightSection) : <div />}
             </div>
           ))}
 
-          <div className="grid gap-2.5 lg:grid-cols-2 lg:items-stretch">
+          <div className="grid gap-2.5 lg:grid-cols-2">
             {rotationSection ? renderConfigSection(rotationSection) : <div />}
 
             <section
