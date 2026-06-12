@@ -4,8 +4,7 @@ import {
   EyeOff,
   Box,
   AlertTriangle,
-  Upload,
-  FolderInput,
+
   Folder,
   FolderOpen,
   ChevronRight,
@@ -21,6 +20,7 @@ import {
 import type { LoadedModel } from '@/features/scene/useSceneCollectionManager';
 import { Card, CardHeader, IconButton } from '@/components/ui/primitives';
 import { formatMeshStatsForDisplay } from '@/utils/meshStatsFormatting';
+import { useFloatingPanelCollapse } from '@/components/layout/FloatingPanelStack';
 
 type SelectMode = 'single' | 'toggle' | 'add';
 
@@ -44,10 +44,7 @@ interface ModelManagerPanelProps {
   onOpenSupportsInfo?: (id: string) => void;
   onDelete: (id: string) => void;
   onVisibilityChange: (id: string, visible: boolean) => void;
-  onLoadMeshClick?: () => void;
-  onLoadMeshChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onImportSceneClick?: () => void;
-  onImportSceneChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+
   dimmed?: boolean;
   bottomClearancePx?: number;
 }
@@ -103,14 +100,10 @@ export function ModelManagerPanel({
   onOpenSupportsInfo,
   onDelete: _onDelete,
   onVisibilityChange,
-  onLoadMeshClick,
-  onLoadMeshChange,
-  onImportSceneClick,
-  onImportSceneChange,
   dimmed = false,
   bottomClearancePx = 220,
 }: ModelManagerPanelProps) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useFloatingPanelCollapse(true);
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Record<string, boolean>>({});
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [renamingGroupName, setRenamingGroupName] = useState('');
@@ -122,6 +115,37 @@ export function ModelManagerPanel({
   const quickActionsGridRef = useRef<HTMLDivElement | null>(null);
   void _onDelete;
   const hasImportSceneAction = Boolean(onImportSceneChange);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const resizeDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const getParentPanel = (el: HTMLElement): HTMLElement | null =>
+    el.closest('.absolute.pointer-events-auto') as HTMLElement | null;
+
+  const handleResizePointerDown = React.useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const handle = e.currentTarget as HTMLElement;
+    const parent = getParentPanel(handle);
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
+    resizeDragRef.current = { startX: e.clientX, startWidth: rect.width };
+    handle.setPointerCapture(e.pointerId);
+  }, []);
+
+  const handleResizePointerMove = React.useCallback((e: React.PointerEvent) => {
+    const drag = resizeDragRef.current;
+    if (!drag) return;
+    const handle = e.currentTarget as HTMLElement;
+    const parent = getParentPanel(handle);
+    if (!parent) return;
+    const dx = e.clientX - drag.startX;
+    const newWidth = Math.max(280, Math.min(600, drag.startWidth + dx));
+    parent.style.width = `${newWidth}px`;
+  }, []);
+
+  const handleResizePointerUp = React.useCallback((e: React.PointerEvent) => {
+    resizeDragRef.current = null;
+  }, []);
 
   const selectedSet = useMemo(() => new Set(selectedModelIds), [selectedModelIds]);
 
@@ -171,15 +195,18 @@ export function ModelManagerPanel({
         : []);
   }, [models, outsidePlateModelIds]);
 
+  const contextModelId = contextMenu?.modelId;
+  const contextGroupId = contextMenu?.groupId;
+
   const contextModel = useMemo(() => {
-    if (!contextMenu?.modelId) return null;
-    return models.find((m) => m.id === contextMenu.modelId) ?? null;
-  }, [contextMenu, models]);
+    if (!contextModelId) return null;
+    return models.find((m) => m.id === contextModelId) ?? null;
+  }, [contextModelId, models]);
 
   const contextGroup = useMemo(() => {
-    if (!contextMenu?.groupId) return null;
-    return grouped.find((g) => g.id === contextMenu.groupId) ?? null;
-  }, [contextMenu, grouped]);
+    if (!contextGroupId) return null;
+    return grouped.find((g) => g.id === contextGroupId) ?? null;
+  }, [contextGroupId, grouped]);
 
   const selectedGroupedCount = useMemo(() => {
     if (selectedModelIds.length === 0) return 0;
@@ -199,8 +226,8 @@ export function ModelManagerPanel({
   const computedBottomClearance = Math.max(140, Math.round(bottomClearancePx));
   const panelMaxHeight = `calc(100vh - var(--topbar-height) - ${computedBottomClearance}px)`;
   const panelClassName = dimmed
-    ? 'opacity-60 pointer-events-none transition-opacity duration-150 flex flex-col'
-    : 'transition-opacity duration-150 flex flex-col';
+    ? 'opacity-60 pointer-events-none transition-opacity duration-150 flex flex-col relative'
+    : 'transition-opacity duration-150 flex flex-col relative';
   const panelStyle: React.CSSProperties = {
     ...(dimmed ? { filter: 'grayscale(0.25)' } : {}),
     ...(expanded ? { maxHeight: panelMaxHeight } : {}),
@@ -358,7 +385,6 @@ export function ModelManagerPanel({
     const input = document.getElementById('models-card-scene-input') as HTMLInputElement | null;
     input?.click();
   }, [onImportSceneClick]);
-
   return (
     <Card
       className={panelClassName}
@@ -886,6 +912,24 @@ export function ModelManagerPanel({
           </div>
         </div>
       )}
+      {/* Horizontal resize handle on the right edge */}
+      <div
+        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:opacity-100 opacity-0 transition-opacity"
+        style={{
+          background: 'transparent',
+        }}
+        onPointerDown={handleResizePointerDown}
+        onPointerMove={handleResizePointerMove}
+        onPointerUp={handleResizePointerUp}
+        onPointerCancel={handleResizePointerUp}
+      >
+        <div
+          className="absolute right-0 top-0 bottom-0 w-[3px] rounded-full transition-colors"
+          style={{
+            background: 'color-mix(in srgb, var(--accent), transparent 60%)',
+          }}
+        />
+      </div>
     </Card>
   );
 }

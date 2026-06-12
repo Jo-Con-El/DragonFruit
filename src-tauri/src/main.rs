@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod astar;
 mod mesh_repair;
 mod network;
+mod sdf;
 fn default_minimum_aa_alpha_percent() -> f32 {
     35.0
 }
@@ -230,7 +232,7 @@ pub(crate) struct StageFileAppender {
     pub len: u64,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, PartialEq)]
 pub(crate) struct StageMeshStats {
     pub chunks_received: u64,
     pub append_ns_total: u64,
@@ -3266,7 +3268,11 @@ fn main() {
             mesh_repair::mesh_punch_capture_staged_source,
             mesh_repair::mesh_punch_from_captured_source,
             mesh_repair::mesh_punch_read_positions,
-            mesh_repair::mesh_repair_read_positions
+            mesh_repair::mesh_repair_read_positions,
+            sdf::compute_sdf_from_staged,
+            sdf::compute_heightmap_from_staged,
+            sdf::invalidate_sdf_cache,
+            astar::run_astar_pathfinding
         ])
         .run(tauri::generate_context!())
         .expect("error while running DragonFruit desktop app");

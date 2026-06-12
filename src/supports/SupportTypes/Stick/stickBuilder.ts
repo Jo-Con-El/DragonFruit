@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { Joint, Segment, Stick, Vec3 } from '../../types';
+import { Joint, Segment, Stick, Vec3, LimitationCode } from '../../types';
 import type { ContactCone, SupportTipProfile } from '../../SupportPrimitives/ContactCone/types';
 import { getSocketPosition } from '../../SupportPrimitives/ContactCone/contactConeUtils';
 import { calculateDiskThickness } from '../../SupportPrimitives/ContactDisk/contactDiskUtils';
 import { getSettings } from '../../Settings';
 import { getJointDiameter } from '../../constants';
+import { isShaftBlocked, isCollisionFrustumBlocked } from '../../PlacementLogic/CollisionAvoidance';
 
 function uuid() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -19,14 +20,16 @@ export interface StickBuildInput {
     aNormal: Vec3;
     bPos: Vec3;
     bNormal: Vec3;
+    mesh?: THREE.Mesh;
 }
 
 export interface StickBuildResult {
     stick: Stick;
+    error?: LimitationCode;
 }
 
 export function buildStick(input: StickBuildInput): StickBuildResult {
-    const { modelId, aPos, aNormal, bPos, bNormal } = input;
+    const { modelId, aPos, aNormal, bPos, bNormal, mesh } = input;
 
     const settings = getSettings();
 
@@ -107,7 +110,7 @@ export function buildStick(input: StickBuildInput): StickBuildResult {
     };
 
     // Normalize ordering so the ID/joint ordering is deterministic across equivalent inputs.
-    const a = new THREE.Vector3(aPos.x, aPos.y, aPos.z);
+        const a = new THREE.Vector3(aPos.x, aPos.y, aPos.z);
     const b = new THREE.Vector3(bPos.x, bPos.y, bPos.z);
     const swap = a.z > b.z || (a.z === b.z && (a.y > b.y || (a.y === b.y && a.x > b.x)));
 
@@ -120,5 +123,28 @@ export function buildStick(input: StickBuildInput): StickBuildResult {
         contactConeB: swap ? contactConeA : contactConeB,
     };
 
-    return { stick };
+    let error: LimitationCode | undefined = undefined;
+    if (mesh) {
+        const shaftRadius = shaftDiameter / 2;
+        const contactRadius = tipProfile.contactDiameterMm / 2;
+        const bodyRadius = tipProfile.bodyDiameterMm / 2;
+
+        // 1. Check shaft segment (SDF adaptive sphere tracing — zero BVH
+        //    overhead when precomputed SDF grid is loaded)
+        const segmentBlocked = isShaftBlocked(socketA, socketB, shaftRadius, mesh);
+
+        // 2. Check both contact cones as tapered frustums
+        const coneABlocked = isCollisionFrustumBlocked(
+            aPos, socketA, contactRadius, bodyRadius, mesh,
+        );
+        const coneBBlocked = isCollisionFrustumBlocked(
+            bPos, socketB, contactRadius, bodyRadius, mesh,
+        );
+
+        if (segmentBlocked || coneABlocked || coneBBlocked) {
+            error = 'COLLISION_WITH_MODEL';
+        }
+    }
+
+    return { stick, error };
 }
