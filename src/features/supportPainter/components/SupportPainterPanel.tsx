@@ -55,6 +55,11 @@ const BRUSH_DETAILS: Record<
   BrushType,
   { label: string; desc: string; icon: React.ComponentType<any> }
 > = {
+  Marker: {
+    label: 'Marker Brush',
+    desc: 'Brush with rotated shapes & collision strategies',
+    icon: CircleDot,
+  },
   MacroFace: {
     label: 'MacroFace',
     desc: 'Paint coplanar surfaces',
@@ -99,11 +104,6 @@ const BRUSH_DETAILS: Record<
     label: 'Manual Square',
     desc: 'Manual square geodesic brush',
     icon: Square,
-  },
-  Marker: {
-    label: 'Marker Brush',
-    desc: 'Brush with rotated shapes & collision strategies',
-    icon: CircleDot,
   },
   PointPath: {
     label: 'Point Path',
@@ -887,7 +887,7 @@ export function SupportPainterPanel({
               {pendingRegions.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => supportPainterStore.clearAll()}
+                  onClick={() => supportPainterStore.clearPending()}
                   className="text-[10px] font-medium hover:underline transition-colors"
                   style={{ color: 'var(--danger, #ef4444)' }}
                 >

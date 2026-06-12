@@ -228,7 +228,7 @@ export function useSupportPainterManager(
         : snap.markerTipRotationDeg;
 
       const collisionMode = isCustomMarker
-        ? (activeCustomBrush.selection.markerCollisionMode ?? 'fence')
+        ? (activeCustomBrush.selection.markerCollisionMode ?? 'merge')
         : snap.markerCollisionMode;
 
       const markerParams = {

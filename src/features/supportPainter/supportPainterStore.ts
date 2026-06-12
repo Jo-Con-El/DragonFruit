@@ -98,8 +98,8 @@ let activePlacementScriptId: string | null = null;
 let brushDefaultScripts = new Map<string, string>();
 
 const BRUSH_TYPES_LIST: BrushType[] = [
-  'MacroFace', 'TexturedFace', 'Ridge', 'Point', 'RoughEdge', 'SoftRidge', 'Ring',
-  'ManualCircle', 'ManualSquare', 'Marker', 'PointPath', 'MinimaIslands'
+  'Marker', 'MacroFace', 'TexturedFace', 'Ridge', 'Point', 'RoughEdge', 'SoftRidge', 'Ring',
+  'ManualCircle', 'ManualSquare', 'PointPath', 'MinimaIslands'
 ];
 
 function getDefaultOperationsForBrush(brushType: BrushType, defaultSpacing = 4.0): CustomSupportOperation[] {
@@ -597,7 +597,7 @@ let markerRadiusMm = 0.2;
 let markerTipShape: 'circle' | 'line' | 'rectangle' | 'square' | 'hexagon' = 'circle';
 let markerTipRotationDeg = 0;
 let markerEraserMode = false;
-let markerCollisionMode: 'fence' | 'push' | 'merge' = 'fence';
+let markerCollisionMode: 'fence' | 'push' | 'merge' = 'merge';
 
 // ─── Point Path Brush State ───
 let pointPathPoints: { point: [number, number, number]; faceIndex: number }[] = [];
@@ -996,6 +996,11 @@ export const supportPainterStore = {
   setActiveBrush(brush: BrushType) {
     if (activeBrush === brush) return;
     activeBrush = brush;
+    
+    const isMarker = brush === 'Marker' || (activeCustomBrushId !== null && customBrushes.get(activeCustomBrushId)?.baseBrush === 'Marker');
+    if (isMarker && directGenEnabled) {
+      directGenEnabled = false;
+    }
     
     const defaultScriptId = _getDefaultScriptIdForBrush(brush, brush === 'PointPath' ? pointPathMode : undefined, activeCustomBrushId);
     activePlacementScriptId = defaultScriptId;
@@ -1591,6 +1596,41 @@ export const supportPainterStore = {
     notify();
   },
 
+  clearPending() {
+    let changed = false;
+    for (const [id, r] of regions.entries()) {
+      if (r.support === undefined && r.loops === undefined) {
+        regions.delete(id);
+        selectedRegionIds.delete(id);
+        if (selectedRegionId === id) {
+          selectedRegionId = null;
+        }
+        changed = true;
+      }
+    }
+    if (!changed) return;
+
+    if (selectedRegionId === null) {
+      const remainingRegions = Array.from(regions.values()).sort((a, b) => b.createdAt - a.createdAt);
+      if (remainingRegions.length > 0) {
+        selectedRegionId = remainingRegions[0].id;
+        selectedRegionIds = new Set([remainingRegions[0].id]);
+        lastSelectedIndex = 0;
+      } else {
+        selectedRegionIds.clear();
+        lastSelectedIndex = null;
+      }
+    }
+
+    proposedTriangleIds.clear();
+    hoveredTriangleId = null;
+    scannedMinima = [];
+    triangleColorMap = _recomputeTriangleColorMap();
+    updateSnapshot();
+    notify();
+  },
+
+
   // ─── Extended Spacing, Suppression & Toast Actions ───
   // [AGENT_NOTE] Invoked by the UI panels and support scripting engine to coordinate updates.
 
@@ -1727,6 +1767,11 @@ export const supportPainterStore = {
   setActiveCustomBrushId(id: string | null) {
     if (activeCustomBrushId === id) return;
     activeCustomBrushId = id;
+    
+    const isMarker = activeBrush === 'Marker' || (id !== null && customBrushes.get(id)?.baseBrush === 'Marker');
+    if (isMarker && directGenEnabled) {
+      directGenEnabled = false;
+    }
     
     const defaultScriptId = _getDefaultScriptIdForBrush(activeBrush, activeBrush === 'PointPath' ? pointPathMode : undefined, id);
     activePlacementScriptId = defaultScriptId;

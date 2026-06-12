@@ -1212,6 +1212,19 @@ function sampleSpineWithNormals(
   return samples;
 }
 
+function getResolvedOperations(region: ROIRegion, defaultSpacing: number): CustomSupportOperation[] {
+  if (region.customBrush?.operations && region.customBrush.operations.length > 0) {
+    return region.customBrush.operations;
+  }
+  if (region.placementScriptId) {
+    const script = supportPainterStore.getSnapshot().placementScripts.get(region.placementScriptId);
+    if (script) {
+      return script.operations;
+    }
+  }
+  return upgradePipeline(undefined, region.brushType, defaultSpacing);
+}
+
 /**
  * High-performance support generator that parses painted regions and outputs physical columns.
  */
@@ -1694,7 +1707,7 @@ export async function generateSupportsFromPainter(
     region: ROIRegion,
     stage: 'minima' | 'perimeter' | 'infill' | 'centerline'
   ) => {
-    const resolvedOps = region.customBrush?.operations || upgradePipeline(undefined, region.brushType, defaultSpacing);
+    const resolvedOps = getResolvedOperations(region, defaultSpacing);
     const op = resolvedOps.find(o => o.type === stage && o.enabled);
     if (op) {
       const isLockedInfillZ = stage === 'infill' && op.enableZHeightDensity;
@@ -1770,7 +1783,7 @@ export async function generateSupportsFromPainter(
             effectiveRadius = Math.max(effectiveRadius, trunkWidth * 3.0);
           } else {
             // Apply Z-density dynamic scaling to suppression distance if enabled
-            const resolvedOps = region.customBrush?.operations || upgradePipeline(undefined, region.brushType, defaultSpacing);
+            const resolvedOps = getResolvedOperations(region, defaultSpacing);
             const op = resolvedOps.find((o: CustomSupportOperation) => o.type === cand.stage && o.enabled);
             if (op && op.enableZHeightDensity) {
               const { minZ, maxZ } = getRegionZBounds(region);
@@ -1830,10 +1843,11 @@ export async function generateSupportsFromPainter(
         infillPattern?: 'PoissonDisc' | 'Grid' | 'Honeycomb' | 'Concentric';
         seedFromMinima?: boolean;
         attemptLeafCreation?: boolean;
+        leafInterval?: number;
       };
     }[] = [];
 
-    const resolvedOps = region.customBrush?.operations || upgradePipeline(undefined, region.brushType, defaultSpacing);
+    const resolvedOps = getResolvedOperations(region, defaultSpacing);
     for (const op of resolvedOps) {
       pipeline.push({
         type: op.type,
@@ -2996,7 +3010,7 @@ export async function generateSupportsFromPainter(
   ) => {
     const r = allRegions.get(rId);
     if (!r) return null;
-    const resolvedOps = r.customBrush?.operations || upgradePipeline(undefined, r.brushType, defaultSpacing);
+    const resolvedOps = getResolvedOperations(r, defaultSpacing);
     const op = resolvedOps.find(o => o.type === sName && o.enabled);
     return op ? op.spacing : null;
   };

@@ -8,6 +8,7 @@ import {
   Trash,
   Save,
   GitMerge,
+  Edit2,
 } from 'lucide-react';
 import { IconButton, Button } from '@/components/ui/primitives';
 import { type CustomSupportOperation, type CustomSupportOperationType, type BrushType, arePipelinesEquivalent, upgradePipeline } from '../supportPainterTypes';
@@ -198,6 +199,7 @@ export function SupportPipelineEditor({
   const state = useSupportPainterState();
   const [popupScriptNameInput, setPopupScriptNameInput] = useState('');
   const [isSavingPopupScript, setIsSavingPopupScript] = useState(false);
+  const [isRenamingPreset, setIsRenamingPreset] = useState(false);
   const [showPresetManagement, setShowPresetManagement] = useState(false);
 
   // Find matched script for SupportPipelineEditor to keep inline input synchronized
@@ -206,21 +208,18 @@ export function SupportPipelineEditor({
 
   const handleCloneToCustom = () => {
     const defaultName = matchedScriptForSync ? `${matchedScriptForSync.name} (Custom)` : 'Custom Script';
-    const name = prompt('Enter a name for the custom support sequence:', defaultName);
-    if (name === null) return;
-    const trimmed = name.trim();
-    if (!trimmed) return;
+    setPopupScriptNameInput(defaultName);
+    setIsSavingPopupScript(true);
+    setIsRenamingPreset(false);
+  };
 
-    const newScriptId = `custom-script-${Date.now()}`;
-    const newScript = {
-      id: newScriptId,
-      name: trimmed,
-      operations: JSON.parse(JSON.stringify(initialPipeline)),
-      isBuiltIn: false,
-      isReadOnly: false,
-    };
-    supportPainterStore.addPlacementScript(newScript);
-    onPlacementScriptIdChange?.(newScriptId);
+  const checkIfPresetIsReadOnlyAndSetUnsaved = () => {
+    if (placementScriptId && placementScriptId !== 'unsaved') {
+      const script = state.placementScripts.get(placementScriptId);
+      if (script?.isReadOnly || script?.isBuiltIn) {
+        onPlacementScriptIdChange?.('unsaved');
+      }
+    }
   };
 
   useEffect(() => {
@@ -232,9 +231,7 @@ export function SupportPipelineEditor({
   }, [matchedScriptForSync?.id]);
 
   const updateOp = (index: number, updates: Partial<CustomSupportOperation>) => {
-    if (placementScriptId && placementScriptId !== 'unsaved') {
-      onPlacementScriptIdChange?.('unsaved');
-    }
+    checkIfPresetIsReadOnlyAndSetUnsaved();
     const nextOps = initialPipeline.map((op, idx) => {
       if (idx === index) {
         return { ...op, ...updates };
@@ -245,9 +242,7 @@ export function SupportPipelineEditor({
   };
 
   const updateOpSpacing = (index: number, updates: Partial<CustomSupportOperation['spacing']>) => {
-    if (placementScriptId && placementScriptId !== 'unsaved') {
-      onPlacementScriptIdChange?.('unsaved');
-    }
+    checkIfPresetIsReadOnlyAndSetUnsaved();
     const nextOps = initialPipeline.map((op, idx) => {
       if (idx === index) {
         const mergedSpacing = { ...op.spacing, ...updates };
@@ -267,9 +262,7 @@ export function SupportPipelineEditor({
   };
 
   const updateOpSuppression = (index: number, updates: Partial<CustomSupportOperation['suppression']>) => {
-    if (placementScriptId && placementScriptId !== 'unsaved') {
-      onPlacementScriptIdChange?.('unsaved');
-    }
+    checkIfPresetIsReadOnlyAndSetUnsaved();
     const nextOps = initialPipeline.map((op, idx) => {
       if (idx === index) {
         const mergedSuppression = { ...op.suppression, ...updates };
@@ -289,9 +282,7 @@ export function SupportPipelineEditor({
   const moveOp = (index: number, dir: 'up' | 'down') => {
     if (dir === 'up' && index === 0) return;
     if (dir === 'down' && index === initialPipeline.length - 1) return;
-    if (placementScriptId && placementScriptId !== 'unsaved') {
-      onPlacementScriptIdChange?.('unsaved');
-    }
+    checkIfPresetIsReadOnlyAndSetUnsaved();
 
     const nextOps = [...initialPipeline];
     const targetIdx = dir === 'up' ? index - 1 : index + 1;
@@ -302,9 +293,7 @@ export function SupportPipelineEditor({
   };
 
   const addOp = (type: CustomSupportOperationType) => {
-    if (placementScriptId && placementScriptId !== 'unsaved') {
-      onPlacementScriptIdChange?.('unsaved');
-    }
+    checkIfPresetIsReadOnlyAndSetUnsaved();
     const defaultSpacing = 4.0;
     const newOp: CustomSupportOperation = {
       id: `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
@@ -338,17 +327,13 @@ export function SupportPipelineEditor({
   };
 
   const deleteOp = (index: number) => {
-    if (placementScriptId && placementScriptId !== 'unsaved') {
-      onPlacementScriptIdChange?.('unsaved');
-    }
+    checkIfPresetIsReadOnlyAndSetUnsaved();
     const nextOps = initialPipeline.filter((_, idx) => idx !== index);
     onChange(nextOps);
   };
 
   const applyPresetToOp = (index: number, presetId: string) => {
-    if (placementScriptId && placementScriptId !== 'unsaved') {
-      onPlacementScriptIdChange?.('unsaved');
-    }
+    checkIfPresetIsReadOnlyAndSetUnsaved();
     const nextOps = initialPipeline.map((op, idx) => {
       if (idx === index) {
         const preset = getPresetById(presetId);
@@ -414,11 +399,20 @@ export function SupportPipelineEditor({
             if (!isSavingPopupScript) {
               setPopupScriptNameInput('');
               setIsSavingPopupScript(true);
+              setIsRenamingPreset(false);
               return;
             }
 
             const name = popupScriptNameInput.trim();
             if (!name) return;
+
+            if (isRenamingPreset && matchedScript && !matchedScript.isBuiltIn) {
+              supportPainterStore.updatePlacementScript(matchedScript.id, { name });
+              supportPainterStore.showToast([`Renamed placement script to "${name}"`]);
+              setIsSavingPopupScript(false);
+              setIsRenamingPreset(false);
+              return;
+            }
 
             const existingCustom = Array.from(state.placementScripts.values()).find(
               s => s.name.toLowerCase() === name.toLowerCase() && !s.isBuiltIn
@@ -437,6 +431,7 @@ export function SupportPipelineEditor({
             supportPainterStore.showToast([`Saved placement script "${name}"`]);
             onPlacementScriptIdChange?.(scriptId);
             setIsSavingPopupScript(false);
+            setIsRenamingPreset(false);
           };
 
           const handleDeletePreset = () => {
@@ -450,6 +445,7 @@ export function SupportPipelineEditor({
 
           const handleCancelSavePreset = () => {
             setIsSavingPopupScript(false);
+            setIsRenamingPreset(false);
             setPopupScriptNameInput('');
           };
 
@@ -491,25 +487,40 @@ export function SupportPipelineEditor({
                     }}
                   />
                 ) : (
-                  <select
-                    value={matchedScript ? matchedScript.id : 'unsaved'}
-                    onChange={handleSelectPreset}
-                    className="flex-1 max-w-[280px] bg-surface-1 text-text-strong text-[11px] px-2 py-1 rounded border border-border-subtle outline-none"
-                    style={{
-                      background: 'var(--surface-1, #151a22)',
-                      borderColor: 'var(--border-subtle, #2d3748)',
-                      color: 'var(--text-strong, #f3f4f6)',
-                    }}
-                  >
-                    {!matchedScript && (
-                      <option value="unsaved">(Unsaved Placement Script)</option>
+                  <div className="flex items-center gap-1.5 flex-1 max-w-[280px] min-w-0">
+                    <select
+                      value={matchedScript ? matchedScript.id : 'unsaved'}
+                      onChange={handleSelectPreset}
+                      className="flex-1 min-w-0 bg-surface-1 text-text-strong text-[11px] px-2 py-1 rounded border border-border-subtle outline-none"
+                      style={{
+                        background: 'var(--surface-1, #151a22)',
+                        borderColor: 'var(--border-subtle, #2d3748)',
+                        color: 'var(--text-strong, #f3f4f6)',
+                      }}
+                    >
+                      {!matchedScript && (
+                        <option value="unsaved">(Unsaved Placement Script)</option>
+                      )}
+                      {Array.from(state.placementScripts.values()).map(script => (
+                        <option key={script.id} value={script.id}>
+                          {script.name}
+                        </option>
+                      ))}
+                    </select>
+                    {matchedScript && !matchedScript.isBuiltIn && (
+                      <IconButton
+                        onClick={() => {
+                          setPopupScriptNameInput(matchedScript.name);
+                          setIsSavingPopupScript(true);
+                          setIsRenamingPreset(true);
+                        }}
+                        className="!p-1 hover:bg-black/20"
+                        title="Rename Preset"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" style={{ color: 'var(--accent, #4a90e2)' }} />
+                      </IconButton>
                     )}
-                    {Array.from(state.placementScripts.values()).map(script => (
-                      <option key={script.id} value={script.id}>
-                        {script.name}
-                      </option>
-                    ))}
-                  </select>
+                  </div>
                 )}
 
                 <IconButton
@@ -1443,6 +1454,24 @@ export function SupportPipelineEditor({
     );
   };
 
+  const handleSaveAndApply = () => {
+    if (placementScriptId && placementScriptId !== 'unsaved') {
+      const script = state.placementScripts.get(placementScriptId);
+      if (script && !script.isReadOnly && !script.isBuiltIn) {
+        supportPainterStore.updatePlacementScript(script.id, {
+          operations: JSON.parse(JSON.stringify(initialPipeline))
+        });
+      }
+    }
+    onSave?.();
+  };
+
+  const handleSaveToNew = () => {
+    setPopupScriptNameInput('');
+    setIsSavingPopupScript(true);
+    setIsRenamingPreset(false);
+  };
+
   if (isEmbedded) {
     return renderContent();
   }
@@ -1502,9 +1531,14 @@ export function SupportPipelineEditor({
             </Button>
           )}
           {onSave && (
-            <Button onClick={onSave} style={{ background: colorTheme, color: '#fff' }}>
-              Apply Changes
-            </Button>
+            <>
+              <Button variant="secondary" onClick={handleSaveToNew}>
+                Save to New
+              </Button>
+              <Button onClick={handleSaveAndApply} style={{ background: colorTheme, color: '#fff' }}>
+                Save &amp; Apply
+              </Button>
+            </>
           )}
         </div>
       </div>
