@@ -28,7 +28,7 @@ import {
   selectPrinterNetworkDevice,
   subscribeToProfileStore,
 } from '@/features/profiles/profileStore';
-import { getInstalledProfilePlugins } from '@/features/plugins/pluginRegistry';
+
 import type { View3DSettings } from '@/components/settings/view3dPreferences';
 import type { SlicingThumbnailRenderSettings } from '@/components/settings/PerformanceSettingsTab';
 
@@ -485,17 +485,7 @@ export function TopBar({
 
   const profileState = React.useSyncExternalStore(subscribeToProfileStore, getProfileStoreSnapshot, getProfileStoreServerSnapshot);
   const activePrinterProfile = React.useMemo(() => getActivePrinterProfile(profileState), [profileState]);
-  const athenaPresetIds = React.useMemo(() => {
-    const athenaPlugin = getInstalledProfilePlugins().find(
-      (plugin) => plugin.enabled && plugin.manifest.id === 'athena-builtin',
-    );
-    return new Set((athenaPlugin?.manifest.printerPresets ?? []).map((preset) => preset.presetId));
-  }, []);
-  const isAthenaPublicBetaProfile = React.useMemo(() => {
-    const officialPresetId = activePrinterProfile?.officialPresetId?.trim();
-    if (!officialPresetId) return false;
-    return athenaPresetIds.has(officialPresetId);
-  }, [activePrinterProfile?.officialPresetId, athenaPresetIds]);
+
 
   React.useEffect(() => {
     setPrinterThumbnailFailed(false);
@@ -601,30 +591,23 @@ export function TopBar({
       locked: false,
     },
     {
-      mode: 'analysis',
-      label: 'Analysis',
-      step: 2,
-      hint: 'Inspect islands and diagnostics',
-      locked: !hasModels,
-    },
-    {
       mode: 'support',
       label: 'Support',
-      step: 3,
+      step: 2,
       hint: 'Build and tune supports',
       locked: !hasModels,
     },
     {
       mode: 'export',
       label: 'Export',
-      step: 4,
+      step: 3,
       hint: 'Finalize and export output',
       locked: !hasModels,
     },
     {
       mode: 'printing',
       label: 'Printing',
-      step: 5,
+      step: 4,
       hint: 'Inspect sliced layers before printing',
       locked: !hasModels || !hasPrintingData,
     },
@@ -939,14 +922,13 @@ export function TopBar({
             style={{ background: 'color-mix(in srgb, var(--border-subtle), transparent 10%)' }}
           />
 
-          <div className={`relative grid grid-cols-5 gap-2 ${topbarActionsDisabled ? 'pointer-events-none' : 'pointer-events-auto'}`}>
+          <div className={`relative grid grid-cols-4 gap-2 ${topbarActionsDisabled ? 'pointer-events-none' : 'pointer-events-auto'}`}>
             {steps.map((item) => {
               const active = mode === item.mode;
               const locked = item.locked;
-              const analysisComingSoon = item.mode === 'analysis' && isAthenaPublicBetaProfile;
-              const disabled = locked || topbarActionsDisabled || analysisComingSoon;
-              const nativeDisabled = disabled && !analysisComingSoon;
-              const visuallyDimmed = topbarActionsDisabled || (locked && !analysisComingSoon);
+              const disabled = locked || topbarActionsDisabled;
+              const nativeDisabled = disabled;
+              const visuallyDimmed = topbarActionsDisabled || locked;
               const printingLocked = item.mode === 'printing' && locked;
 
               return (
@@ -980,8 +962,6 @@ export function TopBar({
                   }
                   title={topbarActionsDisabled
                     ? 'Slicing in progress. Topbar actions are temporarily disabled.'
-                    : analysisComingSoon
-                    ? 'Coming Soon! Analysis workspace for Athena public beta is temporarily unavailable.'
                     : locked
                     ? (item.mode === 'printing'
                       ? 'Run slicing in Export to unlock Printing preview'
@@ -1015,26 +995,7 @@ export function TopBar({
                     <Lock className="h-3 w-3 ml-auto" style={{ color: 'var(--text-muted)' }} />
                   )}
 
-                  {analysisComingSoon && (
-                    <div
-                      className="pointer-events-none absolute right-0 top-full mt-2 z-[70] w-[190px] rounded-md border px-2.5 py-2 text-[12px] leading-tight opacity-0 -translate-y-1 transition-all duration-150 group-hover:opacity-100 group-hover:translate-y-0"
-                      style={{
-                        borderColor: 'color-mix(in srgb, var(--accent), var(--border-subtle) 35%)',
-                        background: 'color-mix(in srgb, var(--surface-0), black 10%)',
-                        color: 'var(--text-muted)',
-                        boxShadow: '0 10px 24px rgba(0,0,0,0.28)',
-                      }}
-                      role="tooltip"
-                      aria-hidden="true"
-                    >
-                      <div className="font-semibold mb-0.5" style={{ color: 'var(--text-strong)' }}>
-                        Coming Soon!
-                      </div>
-                      <div>
-                        Analysis Workspace is still under development! We appreciate your patience as we work to bring this feature to life in a future update.
-                      </div>
-                    </div>
-                  )}
+
                 </button>
               );
             })}
