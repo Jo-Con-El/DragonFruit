@@ -1,7 +1,9 @@
-# DragonFruit: The Resin Slicer &nbsp;&nbsp;&nbsp; [![Discord Link](https://discordapp.com/api/guilds/1281738817417777204/widget.png?style=shield)](https://discord.gg/beFeTaPH6v)
+# DragonFruit: The Resin Slicer
 
 [![GitHub release](https://img.shields.io/github/release/Open-Resin-Alliance/DragonFruit.svg?style=for-the-badge)](https://github.com/Open-Resin-Alliance/DragonFruit/releases)
 [![GitHub issues](https://img.shields.io/github/issues/Open-Resin-Alliance/DragonFruit.svg?style=for-the-badge)](https://github.com/Open-Resin-Alliance/DragonFruit/issues)
+[![Discord Link](https://img.shields.io/discord/1281738817417777204?style=for-the-badge&logo=discord&logoColor=white&color=%235865F2)](https://discord.gg/beFeTaPH6v)
+[![Crowdin Translations](https://img.shields.io/badge/crowdin-translations-blue?style=for-the-badge&logo=crowdin)](https://translate.dragonfruit-slicer.com)
 
 DragonFruit is an open-source resin slicer and support-generation environment built by the Open Resin Alliance. It combines a modern Next.js + React frontend with native Rust slicing backends and a Tauri desktop runtime.
 
@@ -87,8 +89,6 @@ For release-style builds and bundles:
      extension and are not suitable for release).
 
 ## Localization (i18n)
-
-[![Crowdin](https://badges.crowdin.net/dragonfruit/localized.svg)](https://translate.dragonfruit-slicer.com/)
 
 See [LOCALE.md](LOCALE.md) for details on DragonFruit's internationalization
 setup, including supported locales, catalog structure, workflow commands, and
