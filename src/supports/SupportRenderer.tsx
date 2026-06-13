@@ -52,6 +52,7 @@ import { cancelPendingSceneHoverClearFrame, clearImmediateModelHover } from './i
 import { isJointHoverCategory, resolveHoveredSupportOwnerId, resolveHoveredSupportVisualState, resolveRawSupportHoverSuppressionState, resolveSelectedPrimitiveHoverSuppression } from './interaction/shared/hover/supportHoverResolver';
 import { setSceneHoveredSupportId as setSharedSceneHoveredSupportId, useSceneHoveredSupportId } from './interaction/shared/hover/sceneHoverStore';
 import { useSupportRenderLookup } from './interaction/useSupportRenderLookup';
+import { setInteriorSupportInteractionActive } from './interaction/pointerOcclusion';
 
 interface SupportRendererProps {
     mode?: SupportMode;
@@ -79,6 +80,9 @@ interface SupportRendererProps {
     leafPlacementPreview?: SupportData | null;
     bracePlacementPreview?: BracePreviewData | null;
     kickstandPlacementPreview?: SupportData | null;
+    interiorView?: boolean;
+    cavityGeometryByModelId?: Map<string, THREE.BufferGeometry>;
+    modelWorldInverseById?: Map<string, THREE.Matrix4>;
 }
 
 interface SupportPlacementPreviewLayerProps {
@@ -122,6 +126,13 @@ interface PlacementPreviewBatch {
 }
 
 interface Vec3Like { x: number; y: number; z: number; }
+
+type PlacementSurface = 'interior' | 'exterior';
+type InteriorContactPoint = {
+    pos: Vec3Like;
+    placementSurface?: PlacementSurface;
+};
+type InteriorContactFilter = (contact: InteriorContactPoint | null | undefined, modelId?: string) => boolean;
 
 function applyBatchedBezierSeamOverlap(
     points: Array<{ x: number; y: number; z: number }>,
@@ -862,7 +873,7 @@ export function SupportPlacementPreviewLayer({
     );
 }
 
-export const SupportRenderer = forwardRef<THREE.Group, SupportRendererProps>(({ mode, navigationLodActive = false, hidePlateContactPrimitives = false, clipLower, clipUpper, activeModelId = null, selectedModelIds = [], hoverModelId = null, modelDropOffsetsById, modelFilterId = null, excludeModelId = null, excludeModelIds = [], passive = false, disableSelectionAndHover = false, ghostOpacity = 1, ghostRenderOrder = 0, trunkPlacementPreview = null, branchPlacementPreview = null, leafPlacementPreview = null, bracePlacementPreview = null, kickstandPlacementPreview = null }, ref) => {
+export const SupportRenderer = forwardRef<THREE.Group, SupportRendererProps>(({ mode, navigationLodActive = false, hidePlateContactPrimitives = false, clipLower, clipUpper, activeModelId = null, selectedModelIds = [], hoverModelId = null, modelDropOffsetsById, modelFilterId = null, excludeModelId = null, excludeModelIds = [], passive = false, disableSelectionAndHover = false, ghostOpacity = 1, ghostRenderOrder = 0, trunkPlacementPreview = null, branchPlacementPreview = null, leafPlacementPreview = null, bracePlacementPreview = null, kickstandPlacementPreview = null, interiorView = false, cavityGeometryByModelId, modelWorldInverseById }, ref) => {
     const state = useSyncExternalStore(subscribe, getSnapshot);
     const resolvedSelection = useResolvedSelectionState();
     const settings = useSyncExternalStore(subscribeToSettings, getSettingsSnapshot, getSettingsSnapshot);
@@ -872,6 +883,12 @@ export const SupportRenderer = forwardRef<THREE.Group, SupportRendererProps>(({ 
     const { isActive: isJointCreationActive } = useJointCreationState();
     const { altActive: braceAltActive } = useBracePlacementState();
     const { hotkeyActive: kickstandHotkeyActive } = useKickstandPlacementState();
+    useEffect(() => {
+        const active = interiorView && mode === 'support' && !passive;
+        if (!active) return;
+        setInteriorSupportInteractionActive(true);
+        return () => setInteriorSupportInteractionActive(false);
+    }, [interiorView, mode, passive]);
 
     const selectionEnabled = mode === 'support';
     const effectiveSelectedSupportIds = selectionEnabled ? resolvedSelection.selectedIds : [];
@@ -995,6 +1012,114 @@ export const SupportRenderer = forwardRef<THREE.Group, SupportRendererProps>(({ 
     const braceList = useMemo(() => Object.values(state.braces), [state.braces]);
     const anchorList = useMemo(() => Object.values(state.anchors), [state.anchors]);
     const kickstandList = useMemo(() => Object.values(kickstandState.kickstands), [kickstandState.kickstands]);
+    const matchesInteriorContact = useMemo<InteriorContactFilter>(() => {
+        if (!interiorView) return () => true;
+
+        const hasCavityGeometry = !!cavityGeometryByModelId && cavityGeometryByModelId.size > 0;
+        const thresholdMm = 0.3;
+        const rayHitEpsilonMm = 1e-5;
+        const rayDedupeEpsilonMm = 1e-4;
+        const tempVec = new THREE.Vector3();
+        const insideRaycaster = new THREE.Raycaster();
+        const insideRayDirection = new THREE.Vector3(1, 0.37139, 0.11317).normalize();
+        const cavityMeshByGeometry = new Map<THREE.BufferGeometry, THREE.Mesh>();
+        const queryTarget = { point: new THREE.Vector3(), distance: 0, faceIndex: -1 };
+
+        if (cavityGeometryByModelId) {
+            for (const geometry of cavityGeometryByModelId.values()) {
+                const geometryWithBvh = geometry as THREE.BufferGeometry & {
+                    boundsTree?: {
+                        closestPointToPoint: (
+                            point: THREE.Vector3,
+                            target: typeof queryTarget,
+                        ) => { distance: number } | null;
+                    };
+                    computeBoundsTree?: () => void;
+                };
+                if (!geometryWithBvh.boundsTree && typeof geometryWithBvh.computeBoundsTree === 'function') {
+                    geometryWithBvh.computeBoundsTree();
+                }
+                cavityMeshByGeometry.set(geometry, new THREE.Mesh(geometry));
+            }
+        }
+
+        const isPointInsideCavityVolume = (pointLocal: THREE.Vector3, geometry: THREE.BufferGeometry): boolean => {
+            const mesh = cavityMeshByGeometry.get(geometry);
+            if (!mesh) return false;
+
+            insideRaycaster.set(pointLocal, insideRayDirection);
+            const hits = insideRaycaster.intersectObject(mesh, false);
+            if (hits.length === 0) return false;
+
+            let crossingCount = 0;
+            let lastDistance = Number.NEGATIVE_INFINITY;
+            for (const hit of hits) {
+                if (hit.distance <= rayHitEpsilonMm) continue;
+                if (Math.abs(hit.distance - lastDistance) <= rayDedupeEpsilonMm) continue;
+                lastDistance = hit.distance;
+                crossingCount += 1;
+            }
+
+            return (crossingCount % 2) === 1;
+        };
+
+        const isPointOnCavitySurface = (pos: Vec3Like, modelId?: string): boolean => {
+            if (!cavityGeometryByModelId) return false;
+
+            const geometry = modelId ? cavityGeometryByModelId.get(modelId) : null;
+            if (!geometry && !modelId) {
+                for (const geom of cavityGeometryByModelId.values()) {
+                    const geometryWithBvh = geom as THREE.BufferGeometry & {
+                        boundsTree?: {
+                            closestPointToPoint: (
+                                point: THREE.Vector3,
+                                target: typeof queryTarget,
+                            ) => { distance: number } | null;
+                        };
+                    };
+                    tempVec.set(pos.x, pos.y, pos.z);
+                    if (geometryWithBvh.boundsTree) {
+                        queryTarget.distance = Infinity;
+                        const result = geometryWithBvh.boundsTree.closestPointToPoint(tempVec, queryTarget);
+                        if (result && result.distance < thresholdMm) return true;
+                    }
+                    if (isPointInsideCavityVolume(tempVec, geom)) return true;
+                }
+                return false;
+            }
+            if (!geometry) return false;
+
+            const geometryWithBvh = geometry as THREE.BufferGeometry & {
+                boundsTree?: {
+                    closestPointToPoint: (
+                        point: THREE.Vector3,
+                        target: typeof queryTarget,
+                    ) => { distance: number } | null;
+                };
+            };
+
+            tempVec.set(pos.x, pos.y, pos.z);
+            if (modelId && modelWorldInverseById) {
+                const inverseMatrix = modelWorldInverseById.get(modelId);
+                if (inverseMatrix) tempVec.applyMatrix4(inverseMatrix);
+            }
+
+            if (geometryWithBvh.boundsTree) {
+                queryTarget.distance = Infinity;
+                const result = geometryWithBvh.boundsTree.closestPointToPoint(tempVec, queryTarget);
+                if (result && result.distance < thresholdMm) return true;
+            }
+
+            return isPointInsideCavityVolume(tempVec, geometry);
+        };
+
+        return (contact, modelId) => {
+            if (!contact) return false;
+            if (contact.placementSurface === 'interior') return true;
+            if (contact.placementSurface === 'exterior') return false;
+            return hasCavityGeometry && isPointOnCavitySurface(contact.pos, modelId);
+        };
+    }, [interiorView, cavityGeometryByModelId, modelWorldInverseById]);
     const knotList = useMemo(() => Object.values(state.knots), [state.knots]);
     const kickstandKnotList = useMemo(() => Object.values(kickstandState.knots), [kickstandState.knots]);
 
@@ -2046,7 +2171,11 @@ export const SupportRenderer = forwardRef<THREE.Group, SupportRendererProps>(({ 
     }, [branchList, knotDragPreviewBranchSegmentsById, knotDragPreviewBranchIds]);
 
     const renderTrunkList = useMemo(() => {
-        if (!activePreviewTrunk) return trunkList;
+        const filterInteriorTrunks = (list: typeof trunkList) => interiorView
+            ? list.filter((trunk) => matchesInteriorContact(trunk.contactCone, trunk.modelId))
+            : list;
+
+        if (!activePreviewTrunk) return filterInteriorTrunks(trunkList);
 
         let replaced = false;
         const result = trunkList.map((trunk) => {
@@ -2056,11 +2185,15 @@ export const SupportRenderer = forwardRef<THREE.Group, SupportRendererProps>(({ 
         });
 
         if (!replaced) result.push(activePreviewTrunk);
-        return result;
-    }, [trunkList, activePreviewTrunk]);
+        return filterInteriorTrunks(result);
+    }, [trunkList, activePreviewTrunk, interiorView, matchesInteriorContact]);
 
     const renderBranchList = useMemo(() => {
-        if (!activePreviewBranch) return branchList;
+        const filterInteriorBranches = (list: typeof branchListWithKnotDragPreview) => interiorView
+            ? list.filter((branch) => matchesInteriorContact(branch.contactCone, branch.modelId))
+            : list;
+
+        if (!activePreviewBranch) return filterInteriorBranches(branchListWithKnotDragPreview);
 
         let replaced = false;
         const result = branchListWithKnotDragPreview.map((branch) => {
@@ -2070,17 +2203,41 @@ export const SupportRenderer = forwardRef<THREE.Group, SupportRendererProps>(({ 
         });
 
         if (!replaced) result.push(activePreviewBranch);
-        return result;
-    }, [branchListWithKnotDragPreview, activePreviewBranch]);
+        return filterInteriorBranches(result);
+    }, [branchListWithKnotDragPreview, activePreviewBranch, interiorView, matchesInteriorContact]);
 
     const renderLeafList = useMemo(() => {
-        if (previewLeavesById.size === 0) return leafList;
-        return leafList.map((leaf) => previewLeavesById.get(leaf.id) ?? leaf);
-    }, [leafList, previewLeavesById]);
-    const renderTwigList = twigList;
-    const renderStickList = stickList;
-    const renderBraceList = braceList;
+        const result = previewLeavesById.size === 0
+            ? leafList
+            : leafList.map((leaf) => previewLeavesById.get(leaf.id) ?? leaf);
+        return interiorView
+            ? result.filter((leaf) => matchesInteriorContact(leaf.contactCone, leaf.modelId))
+            : result;
+    }, [leafList, previewLeavesById, interiorView, matchesInteriorContact]);
+    const renderTwigList = useMemo(() => {
+        return interiorView
+            ? twigList.filter((twig) =>
+                matchesInteriorContact(twig.contactDiskA, twig.modelId)
+                || matchesInteriorContact(twig.contactDiskB, twig.modelId),
+            )
+            : twigList;
+    }, [twigList, interiorView, matchesInteriorContact]);
+    const renderStickList = useMemo(() => {
+        return interiorView
+            ? stickList.filter((stick) =>
+                matchesInteriorContact(stick.contactConeA, stick.modelId)
+                || matchesInteriorContact(stick.contactConeB, stick.modelId),
+            )
+            : stickList;
+    }, [stickList, interiorView, matchesInteriorContact]);
+    const renderBraceList = useMemo(() => interiorView ? [] : braceList, [braceList, interiorView]);
+    const renderAnchorList = useMemo(() => {
+        return interiorView
+            ? anchorList.filter((anchor) => matchesInteriorContact(anchor.contactCone, anchor.modelId))
+            : anchorList;
+    }, [anchorList, interiorView, matchesInteriorContact]);
     const renderKickstandList = useMemo(() => {
+        if (interiorView) return [];
         if (!activePreviewKickstand) return kickstandList;
 
         let replaced = false;
@@ -2092,7 +2249,7 @@ export const SupportRenderer = forwardRef<THREE.Group, SupportRendererProps>(({ 
 
         if (!replaced) result.push(activePreviewKickstand);
         return result;
-    }, [kickstandList, activePreviewKickstand]);
+    }, [kickstandList, activePreviewKickstand, interiorView]);
     const renderKnotList = useMemo(() => {
         if (!hasPreviewKnotOverrides) return knotList;
         return knotList.map((knot) => previewKnotOverrides[knot.id] ?? knot);
@@ -4697,7 +4854,7 @@ export const SupportRenderer = forwardRef<THREE.Group, SupportRendererProps>(({ 
             ))}
 
             {/* Render Anchors */}
-            {anchorList.map(anchor => {
+            {renderAnchorList.map(anchor => {
                 if (!isModelVisible(anchor.modelId, anchor.id)) return null;
                 const effectiveSelected = selectedAnchorIds.has(anchor.id);
                 const isAnchorHovered = hoveredSupportIdForVisual === anchor.id
