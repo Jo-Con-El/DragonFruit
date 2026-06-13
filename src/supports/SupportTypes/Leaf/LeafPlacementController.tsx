@@ -83,15 +83,19 @@ export function LeafPlacementController() {
                 includeBranches: true,
                 includeBraces: true,
                 includeTwigs: true,
+                includeSticks: true,
+                placementSurface,
             }),
             ...buildKickstandPathSnapTargets(kickstandState),
         ];
     }, [
         stage,
+        placementSurface,
         supportState.trunks,
         supportState.branches,
         supportState.braces,
         supportState.twigs,
+        supportState.sticks,
         kickstandState.kickstands,
     ]);
 

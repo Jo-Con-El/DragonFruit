@@ -90,6 +90,44 @@ function findClipAwareHitForBranch(
   return hit;
 }
 
+const _branchInteriorCavityRaycaster = new THREE.Raycaster();
+const _branchInteriorCavityRaycastMesh = new THREE.Mesh();
+
+function findInteriorCavityHitForBranch(
+    ray: THREE.Ray,
+    modelMesh: THREE.Object3D,
+    cavityGeometry: THREE.BufferGeometry,
+    modelId: string,
+): THREE.Intersection | null {
+    const rc = _branchInteriorCavityRaycaster;
+    rc.ray.copy(ray);
+    rc.near = 0;
+    rc.far = 500;
+    (rc as any).firstHitOnly = true;
+
+    const mesh = _branchInteriorCavityRaycastMesh;
+    mesh.geometry = cavityGeometry;
+    mesh.matrixWorld.copy(modelMesh.matrixWorld);
+    mesh.matrixAutoUpdate = false;
+    mesh.userData = {
+        modelId,
+        supportPlacementSurface: 'interior',
+        cavityGeometry,
+    };
+
+    const hits: THREE.Intersection[] = [];
+    mesh.raycast(rc, hits);
+
+    rc.near = 0;
+    rc.far = Infinity;
+    (rc as any).firstHitOnly = false;
+
+    if (hits.length === 0) return null;
+    const hit = hits[0];
+    hit.object = mesh;
+    return hit;
+}
+
 export function BranchPlacementController() {
     const { isActive, altActive, stage, tipPosition, tipNormal, modelId, placementSurface } = useBranchPlacementState();
     const supportState = useSyncExternalStore(subscribe, getSnapshot);
@@ -178,8 +216,11 @@ export function BranchPlacementController() {
             includeTrunks: true,
             includeBranches: true,
             includeBraces: true,
+            includeTwigs: true,
+            includeSticks: true,
+            placementSurface,
         });
-    }, [stage, supportState.trunks, supportState.branches, supportState.braces]);
+    }, [stage, placementSurface, supportState.trunks, supportState.branches, supportState.braces, supportState.twigs, supportState.sticks]);
 
     const targetById = useMemo(() => {
         return buildPrimarySnapTargetIndex(allTargets);
@@ -558,6 +599,22 @@ export function BranchPlacementController() {
                     const intersects = raycaster.intersectObjects(modelMeshes, false);
                     if (intersects.length > 0) {
                         meshHit = intersects[0];
+
+                        if (placementSurface === 'interior') {
+                            const cavityGeometry = meshHit.object.userData?.cavityGeometry as THREE.BufferGeometry | undefined;
+                            const hitModelId = meshHit.object.userData?.modelId as string | undefined;
+                            if (cavityGeometry && hitModelId) {
+                                const interiorHit = findInteriorCavityHitForBranch(
+                                    raycaster.ray,
+                                    meshHit.object,
+                                    cavityGeometry,
+                                    hitModelId,
+                                );
+                                if (interiorHit) {
+                                    meshHit = interiorHit;
+                                }
+                            }
+                        }
 
                         // If the hit falls within the clipped (invisible) region,
                         // re-raycast past the clipped surface to find the visible inner wall.

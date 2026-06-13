@@ -185,6 +185,14 @@ export function BracePlacementController() {
         return startSurface ?? endSurface;
     }, []);
 
+    const activePlacementSurface = useMemo(() => {
+        if (!start) return undefined;
+        if (start.kind === 'shaft') {
+            return start.segmentId ? segmentPlacementSurfaceById.get(start.segmentId) : undefined;
+        }
+        return start.leafId ? leafPlacementSurfaceById.get(start.leafId) : undefined;
+    }, [start, segmentPlacementSurfaceById, leafPlacementSurfaceById]);
+
     // Reverse lookup: twig segment id → owning twig. Lets the placement
     // controller resolve the live twig taper diameter at the snap point so
     // brace endpoint knots on twigs match the leaf-on-twig rule (1.10× of
@@ -268,17 +276,19 @@ export function BracePlacementController() {
             includeBraces: true,
             includeTwigs: true,
             includeSticks: true,
+            placementSurface: activePlacementSurface,
             excludeSegmentIds: excludedSegmentIds,
         });
 
         targets.push(...buildKickstandPathSnapTargets(kickstandState, { excludeSegmentIds: excludedSegmentIds }));
-        targets.push(...buildLeafConePathSnapTargets(leafMeta));
+        targets.push(...buildLeafConePathSnapTargets(leafMeta, { placementSurface: activePlacementSurface }));
 
         return targets;
     }, [
         altActive,
         stage,
         start,
+        activePlacementSurface,
         supportState.trunks,
         supportState.branches,
         supportState.braces,
