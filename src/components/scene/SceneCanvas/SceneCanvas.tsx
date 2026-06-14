@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect } from 'react';
 import dynamic from 'next/dynamic';
@@ -6405,17 +6405,19 @@ export function SceneCanvas({
                 />
               )}
 
-              <IslandOverlay
-                markers={islandMarkers ?? []}
-                meshRef={activeActualMeshRef.current}
-                brushRadiusMm={overlayBrushRadius ?? 2}
-                color={overlayColor ?? '#FF0000'}
-                opacity={overlayOpacity ?? 0.5}
-                transform={transform}
-                selectedIslandId={overlaySelectedIslandId}
-                clipLower={clipLower}
-                clipUpper={clipUpper}
-              />
+              {mode === 'analysis' && (
+                <IslandOverlay
+                  markers={islandMarkers ?? []}
+                  meshRef={activeActualMeshRef.current}
+                  brushRadiusMm={overlayBrushRadius ?? 2}
+                  color={overlayColor ?? '#FF0000'}
+                  opacity={overlayOpacity ?? 0.5}
+                  transform={transform}
+                  selectedIslandId={overlaySelectedIslandId}
+                  clipLower={clipLower}
+                  clipUpper={clipUpper}
+                />
+              )}
 
               <IslandVoxelVisualization
                 scanResults={scanResults ?? null}

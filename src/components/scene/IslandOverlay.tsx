@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
-import { useFrame } from '@react-three/fiber';
 import type { IslandMarker } from '@/volumeAnalysis/IslandScan/islandOverlayLogic';
 import { applyIslandOverlay as drawIslandOverlay } from '@/volumeAnalysis/IslandScan/islandOverlayPainter';
 import type { ModelTransform } from '@/hooks/useModelTransform';
@@ -108,14 +107,7 @@ export function IslandOverlay({
     };
   }, [unselectedMaterial, selectedOccludedMaterial, selectedVisibleMaterial]);
 
-  // Synchronize 2 Hz opacity breathing pulse across all overlay instances
-  useFrame(({ clock }) => {
-    const elapsed = clock.getElapsedTime();
-    const pulseAlpha = 0.7 + 0.3 * Math.sin(elapsed * 12.566370618);
-    unselectedMaterial.opacity = opacity * pulseAlpha;
-    selectedOccludedMaterial.opacity = 0.95 * pulseAlpha;
-    selectedVisibleMaterial.opacity = 0.95 * pulseAlpha;
-  });
+
 
   if (markers.length === 0) {
     return null;

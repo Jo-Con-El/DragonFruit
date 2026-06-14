@@ -27,7 +27,7 @@ export const PUCK_OPACITY = 0.45;
 export const ISLAND_LAYER_COLORS = {
   voxel: '#3b82f6', // blue
   minima: '#22c55e', // green
-  intersection: '#06b6d4', // electric cyan
+  intersection: '#000000', // black
 } as const;
 
 export interface PuckOptions {

@@ -28,11 +28,26 @@ export function CameraFocusController({ selectedIslandId, islandMarkers }: Camer
     return meshes;
   }, [scene]);
 
+  const lastSelectedIslandIdRef = useRef<number | null>(null);
+  const islandMarkersRef = useRef(islandMarkers);
+  islandMarkersRef.current = islandMarkers;
+
+  const hasMarkers = islandMarkers.length > 0;
+
   useEffect(() => {
-    if (!selectedIslandId || !islandMarkers.length || !controls) return;
+    if (lastSelectedIslandIdRef.current === selectedIslandId) return;
+
+    if (!selectedIslandId) {
+      lastSelectedIslandIdRef.current = null;
+      return;
+    }
+    if (!hasMarkers || !controls) return;
+
+    lastSelectedIslandIdRef.current = selectedIslandId;
 
     // Find the selected island marker
-    const marker = islandMarkers.find(m => m.id === selectedIslandId);
+    const markers = islandMarkersRef.current;
+    const marker = markers.find(m => m.id === selectedIslandId);
     if (!marker) return;
 
     // Get OrbitControls instance
@@ -218,7 +233,7 @@ export function CameraFocusController({ selectedIslandId, islandMarkers }: Camer
     return () => {
       animatingRef.current = false;
     };
-  }, [selectedIslandId, islandMarkers, camera, controls]);
+  }, [selectedIslandId, hasMarkers, camera, controls]);
 
   return null;
 }

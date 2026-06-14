@@ -19158,13 +19158,21 @@ export default function Home() {
             hideCrossSectionCap={false}
             onCameraChange={handleCameraChange}
             onCameraEnd={handleCameraEnd}
-            islandMarkers={[
-              ...(islands.overlayEnabled ? islands.islandMarkers : []),
-            ] as any}
+            islandMarkers={
+              scene.mode === 'support'
+                ? [
+                    ...islandsPoc.voxelOnlyPucks.markers,
+                    ...islandsPoc.minimaOnlyPucks.markers,
+                    ...islandsPoc.intersectionPucks.markers,
+                  ]
+                : (islands.overlayEnabled ? islands.islandMarkers : [])
+            }
             overlayBrushRadius={islands.overlayBrushRadius}
             overlayColor={islands.overlayColor}
             overlayOpacity={islands.overlayOpacity}
-            overlaySelectedIslandId={islands.selectedIslandId}
+            overlaySelectedIslandId={
+              scene.mode === 'support' ? islandsPoc.selectedMarkerId : islands.selectedIslandId
+            }
             ambientIntensity={scene.ambientIntensity}
             directionalIntensity={scene.directionalIntensity}
             materialRoughness={scene.materialRoughness}
