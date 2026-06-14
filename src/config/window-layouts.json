@@ -347,6 +347,24 @@
     },
     {
       "id": "support",
+      "matchPanelIds": ["support-settings", "support-islands"],
+      "order": ["visual-settings", "support-settings", "support-islands"],
+      "anchors": {
+        "visual-settings": {
+          "to": "support-settings",
+          "side": "right-edge"
+        },
+        "support-settings": {
+          "to": "visual-settings",
+          "side": "left"
+        },
+        "support-islands": {
+          "side": "left-edge"
+        }
+      }
+    },
+    {
+      "id": "support-no-islands",
       "matchPanelIds": ["support-settings"],
       "order": ["visual-settings", "support-settings"],
       "anchors": {
