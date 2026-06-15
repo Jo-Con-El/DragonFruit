@@ -1065,11 +1065,35 @@ function sanitizeState(input: Partial<ProfileStoreState> | null | undefined): Pr
           officialPresetVersion: normalizeProfileVersion((profile as any).officialPresetVersion, fallbackOfficialPresetVersion),
           isOfficial: isOfficialProfileByHeuristic(profile),
           isCustom: typeof profile.isCustom === 'boolean' ? profile.isCustom : !isOfficialProfileByHeuristic(profile),
-          buildVolumeMm: {
-            width: Number(rawBuildVolume?.width) || fallbackBuildVolume?.width || 143,
-            depth: Number(rawBuildVolume?.depth) || fallbackBuildVolume?.depth || 89,
-            height: Number(rawBuildVolume?.height) || fallbackBuildVolume?.height || 175,
-          },
+          buildVolumeMm: (() => {
+            // When buildDimensionMode is 'auto', compute width/depth from pixelSize × resolution
+            const toPositive = (v: unknown): number | undefined => {
+              const n = Number(v);
+              return Number.isFinite(n) && n > 0 ? n : undefined;
+            };
+            const rawW = toPositive((rawBuildVolume as any)?.width);
+            const rawD = toPositive((rawBuildVolume as any)?.depth);
+            const rawH = toPositive((rawBuildVolume as any)?.height)
+              ?? toPositive(fallbackBuildVolume?.height)
+              ?? 175;
+
+            if (resolvedBuildDimensionMode === 'auto' && resolvedPixelSize) {
+              const resX = Number(rawDisplay?.resolutionX) || fallbackDisplay?.resolutionX || 2560;
+              const resY = Number(rawDisplay?.resolutionY) || fallbackDisplay?.resolutionY || 1620;
+              const px = resolvedPixelSize;
+              return {
+                width: rawW ?? (resX * px.x) / 1000,
+                depth: rawD ?? (resY * px.y) / 1000,
+                height: rawH,
+              };
+            }
+
+            return {
+              width: rawW ?? fallbackBuildVolume?.width ?? 143,
+              depth: rawD ?? fallbackBuildVolume?.depth ?? 89,
+              height: rawH,
+            };
+          })(),
           safetyMarginMm: explicitSafetyMargin ?? fallbackSafetyMargin,
           display: {
             resolutionX: Number(rawDisplay?.resolutionX) || fallbackDisplay?.resolutionX || 2560,
