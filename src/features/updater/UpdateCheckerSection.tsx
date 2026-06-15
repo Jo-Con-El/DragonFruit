@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
+  Check,
   CloudDownload,
   CloudOff,
   Download,
@@ -126,14 +128,14 @@ function UpToDateState({ onCheck }: { onCheck: () => void }) {
             background: 'color-mix(in srgb, var(--accent-secondary), var(--surface-1) 85%)',
           }}
         >
-          <CloudOff className="h-3.5 w-3.5" style={{ color: 'var(--accent-secondary)' }} />
+          <Check className="h-3.5 w-3.5" style={{ color: 'var(--accent-secondary)' }} />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold" style={{ color: 'var(--text-strong)' }}>
-            Up to date
+            Up To Date!
           </span>
           <span className="block text-[11px]" style={{ color: 'var(--text-muted)' }}>
-            No updates available. The check couldn't reach the update server — this is normal during development.
+            You're running the latest version of DragonFruit.
           </span>
         </span>
         <button
@@ -204,9 +206,9 @@ function AvailableState({
             color: 'var(--text-muted)',
           }}
         >
-          <pre className="whitespace-pre-wrap font-sans text-[11px] m-0" style={{ color: 'var(--text-muted)' }}>
-            {info.body}
-          </pre>
+          <div className="prose prose-invert prose-sm max-h-none text-[11px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+            <ReactMarkdown>{info.body}</ReactMarkdown>
+          </div>
         </div>
       )}
 

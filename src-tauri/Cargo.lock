@@ -1398,6 +1398,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tungstenite",
+ "url",
  "zip 2.3.0",
 ]
 

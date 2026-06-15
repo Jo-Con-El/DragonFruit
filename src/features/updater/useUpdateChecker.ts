@@ -4,8 +4,10 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   fetchUpdateInfo,
   downloadAndInstall,
+  getUpdateChannel,
   type UpdateInfo,
   type DownloadProgress,
+  type UpdateChannel,
 } from '@/features/updater/updateBridge';
 
 // ---------------------------------------------------------------------------
@@ -32,12 +34,18 @@ const STORAGE_KEY_LAST_CHECK = 'dragonfruit-updater-last-check';
 export function useUpdateChecker() {
   const [state, setState] = useState<UpdateState>({ status: 'idle' });
   const [autoCheckEnabled, setAutoCheckEnabled] = useState(true);
+  const [channel, setChannel] = useState<UpdateChannel>('stable');
+
+  // Load the saved channel on mount.
+  useEffect(() => {
+    getUpdateChannel().then(setChannel);
+  }, []);
 
   const handleCheck = useCallback(async () => {
     setState({ status: 'checking' });
 
     try {
-      const info = await fetchUpdateInfo();
+      const info = await fetchUpdateInfo(channel);
 
       if (!info) {
         // Couldn't reach the update server or no release exists yet.
@@ -116,6 +124,8 @@ export function useUpdateChecker() {
     state,
     autoCheckEnabled,
     setAutoCheckEnabled,
+    channel,
+    setChannel,
     checkForUpdates: handleCheck,
     downloadAndInstall: handleDownloadAndInstall,
     dismiss: handleDismiss,

@@ -4,6 +4,7 @@ mod astar;
 mod mesh_repair;
 mod network;
 mod sdf;
+mod updater_channel;
 
 fn default_minimum_aa_alpha_percent() -> f32 {
     35.0
@@ -3284,7 +3285,11 @@ fn main() {
             sdf::compute_sdf_from_staged,
             sdf::compute_heightmap_from_staged,
             sdf::invalidate_sdf_cache,
-            astar::run_astar_pathfinding
+            astar::run_astar_pathfinding,
+            updater_channel::check_updates,
+            updater_channel::perform_update,
+            updater_channel::get_saved_update_channel,
+            updater_channel::save_update_channel
         ])
         .run(tauri::generate_context!())
         .expect("error while running DragonFruit desktop app");
