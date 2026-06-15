@@ -13,6 +13,7 @@ import {
   type CrossSectionStencilCapEntry,
 } from '@/components/scene/CrossSectionStencilCap';
 import { IslandOverlay } from '@/components/scene/IslandOverlay';
+import IslandSurfaceDotsOverlay from '@/components/scene/IslandSurfaceDotsOverlay';
 import { IslandVoxelVisualization } from '@/components/scene/IslandVoxelVisualization';
 import { IslandExpansionVisualization } from '@/components/scene/IslandExpansionVisualization';
 import { MeshClassificationRenderer } from '@/components/scene/MeshClassificationRenderer';
@@ -5490,6 +5491,18 @@ export function SceneCanvas({
                       )}
                     </StlMesh>
 
+                    {isActive && (mode === 'support' || mode === 'analysis') && islandMarkers && islandMarkers.length > 0 && (
+                      <IslandSurfaceDotsOverlay
+                        geometry={model.geometry.geometry}
+                        islandMarkers={islandMarkers}
+                        scanBBox={scanBBox || null}
+                        selectedIslandId={overlaySelectedIslandId}
+                        clipLower={clipLower}
+                        clipUpper={clipUpper}
+                        opacity={overlayOpacity ?? 0.9}
+                        transform={animatedTransform}
+                      />
+                    )}
                   </React.Fragment>
                 );
               })}
@@ -6407,7 +6420,8 @@ export function SceneCanvas({
                 />
               )}
 
-              {mode === 'analysis' && (
+              {/* Legacy IslandOverlay commented out in favor of surface dots */}
+              {/* {mode === 'analysis' && (
                 <IslandOverlay
                   markers={islandMarkers ?? []}
                   meshRef={activeActualMeshRef.current}
@@ -6419,7 +6433,7 @@ export function SceneCanvas({
                   clipLower={clipLower}
                   clipUpper={clipUpper}
                 />
-              )}
+              )} */}
 
               <IslandVoxelVisualization
                 scanResults={scanResults ?? null}

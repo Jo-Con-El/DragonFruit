@@ -19514,11 +19514,8 @@ export default function Home() {
                 onMirror={handleMirror}
               />
             )}
-            {/* Islands PoC — blue voxel pucks. Markers are true world-space, so
-                NO transform is passed (identity group; avoids the legacy
-                getScanVisualPosition offset). Renders inside the R3F Canvas via
-                SceneCanvas children. */}
-            {scene.mode === 'support' && islandsPoc.showVoxelOnly && (
+            {/* Islands PoC — blue voxel pucks. Renders conformed dots via SceneCanvas children instead. */}
+            {/* {scene.mode === 'support' && islandsPoc.showVoxelOnly && (
               <IslandOverlay
                 key="islands-poc-voxel-only"
                 markers={islandsPoc.voxelOnlyPucks.markers}
@@ -19547,7 +19544,7 @@ export default function Home() {
                 opacity={PUCK_OPACITY}
                 selectedIslandId={islandsPoc.selectedMarkerId ?? null}
               />
-            )}
+            )} */}
           </SceneCanvas>
 
           {/* Transform Toolbar */}
