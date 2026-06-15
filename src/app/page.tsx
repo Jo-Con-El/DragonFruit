@@ -12054,6 +12054,7 @@ export default function Home() {
     supportTips,
     plateZ: 0,
     sourcePath: scene.activeModel?.sourcePath,
+    activeTab: scene.mode,
   });
 
   // 5. Supports

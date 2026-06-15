@@ -42,11 +42,13 @@ export interface UseIslandsInput {
   plateZ?: number;
   /** File path of the loaded model. */
   sourcePath?: string | null;
+  /** Active mode / tab. */
+  activeTab?: string;
 }
 
 export type UseIslandsReturn = ReturnType<typeof useIslands>;
 
-export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ = 0, sourcePath }: UseIslandsInput) {
+export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ = 0, sourcePath, activeTab }: UseIslandsInput) {
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<{ done: number; total: number } | null>(null);
   const [voxelIslands, setVoxelIslands] = useState<DetectedIsland[]>([]);
@@ -301,6 +303,25 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
     setMinimaIslands([]);
     setSelectedMarkerId(null);
   }, []);
+
+  // Clear islands selection/cached data on activeTab, sourcePath, geom or transform changes
+  useEffect(() => {
+    clear();
+  }, [
+    activeTab,
+    sourcePath,
+    geom,
+    transform.position.x,
+    transform.position.y,
+    transform.position.z,
+    transform.rotation.x,
+    transform.rotation.y,
+    transform.rotation.z,
+    transform.scale.x,
+    transform.scale.y,
+    transform.scale.z,
+    clear,
+  ]);
 
   const selectNext = useCallback(() => {
     if (orderedIslands.length === 0) return;
