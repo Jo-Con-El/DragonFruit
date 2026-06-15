@@ -4,6 +4,7 @@ mod astar;
 mod mesh_repair;
 mod network;
 mod sdf;
+
 fn default_minimum_aa_alpha_percent() -> f32 {
     35.0
 }
@@ -3197,6 +3198,12 @@ fn main() {
 
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_plugin_macos_fps::init());
+
+    // Updater plugin — checks GitHub releases for new versions and handles
+    // download + install across all platforms.
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    // Process plugin — needed for app relaunch after update installs.
+    let builder = builder.plugin(tauri_plugin_process::init());
 
     builder
         .invoke_handler(tauri::generate_handler![

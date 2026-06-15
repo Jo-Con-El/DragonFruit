@@ -11,6 +11,7 @@ import { SceneAutosaveSettingsTab } from '@/components/settings/SceneAutosaveSet
 import { LoggingSettingsTab, getSavedLogLevel, saveLogLevel, type LogLevelFilter } from '@/components/settings/LoggingSettingsTab';
 import { SpaceMouseSettingsTab } from '@/components/settings/SpaceMouseSettingsTab';
 import { UISettingsTab } from './UISettingsTab';
+import { UpdateCheckerSection } from '@/features/updater/UpdateCheckerSection';
 import { WorkspacesSettingsTab } from '@/components/settings/WorkspacesSettingsTab';
 import { PerformanceSettingsTab, type SlicingThumbnailRenderSettings } from '@/components/settings/PerformanceSettingsTab';
 import { AlertTriangle, Check, Edit3, ExternalLink, Gamepad2, Github, HardDrive, Info, Keyboard, MonitorCog, Palette, Plug, RotateCcw, Save, Settings2, Trash2, X, Camera, Grid3x3, ArchiveRestore, ScrollText } from 'lucide-react';
@@ -1462,6 +1463,9 @@ export function SettingsModal({
                           </span>
                         </div>
                       </div>
+
+                      {/* ── Update Checker ── */}
+                      <UpdateCheckerSection />
 
                       <div className="rounded-xl border p-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--surface-1)' }}>
                         <h5 className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
