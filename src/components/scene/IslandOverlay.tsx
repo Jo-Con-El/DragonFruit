@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import type { IslandMarker } from '@/volumeAnalysis/IslandScan/islandOverlayLogic';
 import type { ModelTransform } from '@/hooks/useModelTransform';
-import { getScanVisualPosition } from '@/utils/scanPositioning';
 
 type IslandOverlayProps = {
   markers: IslandMarker[];
@@ -180,7 +179,7 @@ export function IslandOverlay({
   }
 
   return (
-    <group position={getScanVisualPosition(transform)}>
+    <group>
       {/* 1. Render utility markers (negative IDs for center/seed points) */}
       {utilityMarkers.map((marker) => {
         if (!marker.geometry) return null;
