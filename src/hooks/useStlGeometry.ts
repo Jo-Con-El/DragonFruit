@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { ThreeMFLoader } from 'three/examples/jsm/loaders/3MFLoader.js';
+import { Fast3MFLoader, fast3mfBuilder } from 'fast-3mf-loader';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { accelerateGeometry } from '@/utils/bvh';
@@ -540,7 +541,44 @@ function collectMergedGeometryFromObject3d(root: THREE.Object3D, sourceLabel: '3
   return merged;
 }
 
+/**
+ * Loads a 3MF file using the fast-3mf-loader (SAX parsing + WebWorkers).
+ * Falls back to ThreeMFLoader if the fast loader fails or encounters
+ * unsupported features (e.g. metallic display properties, print tickets).
+ */
+async function tryLoadFast3mf(fileUrl: string): Promise<THREE.Group | null> {
+  try {
+    const response = await fetch(fileUrl);
+    const buffer = await response.arrayBuffer();
+
+    const loader = new Fast3MFLoader();
+    const data3mf = await loader.parse(buffer);
+    const group = fast3mfBuilder(data3mf);
+
+    if (group && group.type === 'Group' && group.children.length > 0) {
+      return group;
+    }
+    return null;
+  } catch (fastError) {
+    console.warn('[load3mfGeometry] fast-3mf-loader failed; falling back to ThreeMFLoader.', fastError);
+    return null;
+  }
+}
+
 export async function load3mfGeometry(fileUrl: string, options?: ProcessGeometryOptions): Promise<GeometryWithBounds> {
+  // Try the fast SAX/worker-based loader first for large archives
+  const fastGroup = await tryLoadFast3mf(fileUrl);
+  if (fastGroup) {
+    console.log(`[${new Date().toISOString()}] [load3mfGeometry] fast-3mf-loader succeeded, processing geometry.`);
+    try {
+      const mergedGeometry = collectMergedGeometryFromObject3d(fastGroup, '3MF');
+      return await processGeometry(mergedGeometry, options);
+    } catch (error) {
+      console.warn('[load3mfGeometry] fast-3mf-loader geometry processing failed; falling back to ThreeMFLoader.', error);
+    }
+  }
+
+  // Fall back to the original ThreeMFLoader
   return new Promise((resolve, reject) => {
     const loader = new ThreeMFLoader();
     console.log(`[${new Date().toISOString()}] [load3mfGeometry] Starting ThreeMFLoader load for ${fileUrl}`);
