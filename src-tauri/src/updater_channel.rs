@@ -70,57 +70,63 @@ fn endpoint_for_channel(channel: &str) -> &'static str {
 
 /// Check for updates using the given release channel.
 /// Returns `null` (None) if no update is available.
+/// On mobile, updates are handled by the App Store — always returns None.
 #[tauri::command]
 pub async fn check_updates(
     app_handle: UpdaterAppHandle,
     channel: Option<String>,
 ) -> Result<Option<UpdateCheckResult>, String> {
-    let channel = channel.as_deref().unwrap_or("stable");
-    let endpoint_str = endpoint_for_channel(channel);
+    #[cfg(not(mobile))]
+    {
+        let channel = channel.as_deref().unwrap_or("stable");
+        let endpoint_str = endpoint_for_channel(channel);
 
-    let endpoint_url: url::Url = endpoint_str
-        .parse()
-        .map_err(|e: url::ParseError| format!("Invalid endpoint URL: {e}"))?;
+        let endpoint_url: url::Url = endpoint_str
+            .parse()
+            .map_err(|e: url::ParseError| format!("Invalid endpoint URL: {e}"))?;
 
-    use tauri_plugin_updater::UpdaterExt;
+        use tauri_plugin_updater::UpdaterExt;
 
-    let updater = app_handle
-        .updater_builder()
-        .endpoints(vec![endpoint_url])
-        .map_err(|e| format!("Failed to set updater endpoints: {e}"))?
-        .build()
-        .map_err(|e| format!("Failed to build updater: {e}"))?;
+        let updater = app_handle
+            .updater_builder()
+            .endpoints(vec![endpoint_url])
+            .map_err(|e| format!("Failed to set updater endpoints: {e}"))?
+            .build()
+            .map_err(|e| format!("Failed to build updater: {e}"))?;
 
-    let update = updater
-        .check()
-        .await
-        .map_err(|e| format!("Update check failed: {e}"))?;
+        let update = updater
+            .check()
+            .await
+            .map_err(|e| format!("Update check failed: {e}"))?;
 
-    match update {
-        Some(update) => {
-            // Cache the full Update object so perform_update can use it.
-            let version = update.version.clone();
-            let current_version = update.current_version.clone();
-            let body = update.body.clone();
-            let date = update.date.map(|d| d.to_string());
-            let download_url = Some(update.download_url.to_string());
+        return match update {
+            Some(update) => {
+                // Cache the full Update object so perform_update can use it.
+                let version = update.version.clone();
+                let current_version = update.current_version.clone();
+                let body = update.body.clone();
+                let date = update.date.map(|d| d.to_string());
+                let download_url = Some(update.download_url.to_string());
 
-            let mut cache = cached_update()
-                .lock()
-                .map_err(|e| format!("Cache lock poisoned: {e}"))?;
-            *cache = Some(update);
+                let mut cache = cached_update()
+                    .lock()
+                    .map_err(|e| format!("Cache lock poisoned: {e}"))?;
+                *cache = Some(update);
 
-            Ok(Some(UpdateCheckResult {
-                update_available: true,
-                version,
-                current_version,
-                body,
-                date,
-                download_url,
-            }))
-        }
-        None => Ok(None),
+                Ok(Some(UpdateCheckResult {
+                    update_available: true,
+                    version,
+                    current_version,
+                    body,
+                    date,
+                    download_url,
+                }))
+            }
+            None => Ok(None),
+        };
     }
+    let _ = (app_handle, channel);
+    Ok(None)
 }
 
 // ---------------------------------------------------------------------------
@@ -129,51 +135,57 @@ pub async fn check_updates(
 
 /// Download and install the cached update. The plugin handles signature
 /// verification, installer launch, and app exit.
+/// On mobile, updates are managed by the App Store — returns an error.
 #[tauri::command]
 pub async fn perform_update(
     on_chunk: tauri::ipc::Channel<PerformUpdateProgress>,
 ) -> Result<String, String> {
-    let update = {
-        let mut cache = cached_update()
-            .lock()
-            .map_err(|e| format!("Cache lock poisoned: {e}"))?;
-        cache.take()
-    };
+    #[cfg(not(mobile))]
+    {
+        let update = {
+            let mut cache = cached_update()
+                .lock()
+                .map_err(|e| format!("Cache lock poisoned: {e}"))?;
+            cache.take()
+        };
 
-    let Some(update) = update else {
-        return Err("No cached update. Call check_updates first.".into());
-    };
+        let Some(update) = update else {
+            return Err("No cached update. Call check_updates first.".into());
+        };
 
-    // Emit a Started progress event.
-    let _ = on_chunk.send(PerformUpdateProgress {
-        downloaded_bytes: 0,
-        total_bytes: None,
-        phase: "downloading".into(),
-    });
+        // Emit a Started progress event.
+        let _ = on_chunk.send(PerformUpdateProgress {
+            downloaded_bytes: 0,
+            total_bytes: None,
+            phase: "downloading".into(),
+        });
 
-    // The plugin's Update::download_and_install handles the whole flow:
-    // download → verify signature → launch installer → exit app.
-    update
-        .download_and_install(
-            |chunk_len, total_len| {
-                let _ = on_chunk.send(PerformUpdateProgress {
-                    downloaded_bytes: chunk_len as u64,
-                    total_bytes: total_len,
-                    phase: "downloading".into(),
-                });
-            },
-            || {
-                let _ = on_chunk.send(PerformUpdateProgress {
-                    downloaded_bytes: 0,
-                    total_bytes: None,
-                    phase: "installing".into(),
-                });
-            },
-        )
-        .await
-        .map_err(|e| format!("Update failed: {e}"))?;
+        // The plugin's Update::download_and_install handles the whole flow:
+        // download → verify signature → launch installer → exit app.
+        update
+            .download_and_install(
+                |chunk_len, total_len| {
+                    let _ = on_chunk.send(PerformUpdateProgress {
+                        downloaded_bytes: chunk_len as u64,
+                        total_bytes: total_len,
+                        phase: "downloading".into(),
+                    });
+                },
+                || {
+                    let _ = on_chunk.send(PerformUpdateProgress {
+                        downloaded_bytes: 0,
+                        total_bytes: None,
+                        phase: "installing".into(),
+                    });
+                },
+            )
+            .await
+            .map_err(|e| format!("Update failed: {e}"))?;
 
-    Ok("Update installed successfully".into())
+        return Ok("Update installed successfully".into());
+    }
+    let _ = on_chunk;
+    Err("Updates are managed by the App Store on this platform.".into())
 }
 
 // ---------------------------------------------------------------------------

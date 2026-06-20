@@ -2663,6 +2663,7 @@ fn emit_scene_file_handoff(app: &DragonFruitAppHandle, args: &[String], source: 
 }
 
 fn focus_main_window(app: &DragonFruitAppHandle) {
+    #[cfg(not(mobile))]
     if let Some(window) = app.get_webview_window("main") {
         let is_visible = window.is_visible().unwrap_or(true);
         if !is_visible {
@@ -2706,6 +2707,9 @@ async fn focus_main_window_command(app: DragonFruitAppHandle) -> Result<(), Stri
 /// Also closes the splash screen window if it is still open.
 #[tauri::command]
 async fn reveal_main_window_command(app: DragonFruitAppHandle) -> Result<(), String> {
+    // On mobile there is only one WebView and no splashscreen to manage.
+    #[cfg(not(mobile))]
+    {
     // Show the main window first so there is no gap between splash close and
     // main window appearance (which would expose the desktop for a frame).
     // Maximize before show so the window is already at full size when it
@@ -2722,6 +2726,7 @@ async fn reveal_main_window_command(app: DragonFruitAppHandle) -> Result<(), Str
     }
     if let Some(splash) = app.get_webview_window("splashscreen") {
         let _ = splash.close();
+    }
     }
     Ok(())
 }

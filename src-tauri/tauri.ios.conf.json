@@ -4,5 +4,15 @@
     "iOS": {
       "minimumSystemVersion": "16.0"
     }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "url": "/",
+        "visible": true,
+        "title": "DragonFruit"
+      }
+    ]
   }
 }

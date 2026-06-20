@@ -29,7 +29,6 @@ url = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
-rfd = "0.15"
 rayon = "1.10"
 zip = "2"
 reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
@@ -52,6 +51,11 @@ meshopt = "0.6.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-plugin-macos-fps = "0.1.0"
+
+# rfd 0.15 doesn't implement AsyncFilePickerDialogImpl for iOS — skip it there.
+# All call sites are already gated with #[cfg(not(mobile))].
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+rfd = "0.15"
 
 [features]
 default = ["custom-protocol", "tauri-wry"]
