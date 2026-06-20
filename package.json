@@ -27,6 +27,7 @@
     "build": "next build",
     "build:tauri": "next build && node scripts/prepare-tauri-frontend.mjs",
     "start": "next start",
+    "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "node scripts/tauri-build.mjs",
     "tauri:bundle": "node scripts/tauri-bundle-all.mjs",
