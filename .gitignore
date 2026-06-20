@@ -18,7 +18,9 @@
 /out/
 **/target/
 src-tauri/frontend-dist/**
-src-tauri/gen/
+# Ignore gen/ contents but keep gen/apple/ (Xcode project from `tauri ios init`).
+src-tauri/gen/*
+!src-tauri/gen/apple
 
 # generated artifacts
 **/generated*
@@ -57,7 +59,6 @@ tsc_output.txt
 # platform/deployment
 .vercel
 
-src-tauri/gen/
 src-tauri/frontend-dist/**
 conversion/
 
