@@ -3,6 +3,12 @@ name = "dragonfruit-desktop"
 version = "0.1.8"
 edition = "2021"
 
+# Required for iOS: staticlib for static linking into the Swift app shell,
+# cdylib for Android (future), rlib so the desktop binary can link against it.
+[lib]
+name = "dragonfruit_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 # All tauri crates come from the feat/cef branch which adds the CEF runtime
 # backend. macOS/Windows use wry (default); Linux builds pass --features
