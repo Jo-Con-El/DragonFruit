@@ -5486,6 +5486,7 @@ export function SceneCanvas({
                         <group
                           matrix={activeModelAttachedSupportLocalMatrix ?? undefined}
                           matrixAutoUpdate={false}
+                          renderOrder={100000}
                         >
                           <ModelAttachedSupportLayer
                             mode={mode}
@@ -5793,7 +5794,7 @@ export function SceneCanvas({
 
               {/* Raft system (Crenelated) - uses supports roots + active model footprint */}
               {/* Wrap all support/raft geometry in a drag group so they move as one during gizmo drags */}
-              <group ref={supportDragGroupRef ?? undefined}>
+              <group ref={supportDragGroupRef ?? undefined} renderOrder={100000}>
               {!useActiveModelAttachedSupportProxy && (
                 <ModelAttachedSupportLayer
                   mode={mode}
@@ -5916,6 +5917,7 @@ export function SceneCanvas({
 
               {/* During active-model proxy drag, keep other models' supports/rafts visible in world space. */}
               {useActiveModelAttachedSupportProxy && activeModelId && (
+                <group renderOrder={100000}>
                 <ModelAttachedSupportLayer
                   mode={mode}
                   excludeModelId={activeModelId}
@@ -5942,6 +5944,7 @@ export function SceneCanvas({
                   cavityGeometryByModelId={cavityGeometryByModelId}
                   modelWorldInverseById={modelWorldInverseById}
                 />
+                </group>
               )}
 
               {multiGizmoSupportPreviewDeltas.length > 0
@@ -5953,6 +5956,7 @@ export function SceneCanvas({
                       }}
                       matrix={delta}
                       matrixAutoUpdate={false}
+                      renderOrder={100000}
                       raycast={() => null}
                     >
                       <ModelAttachedSupportLayer
