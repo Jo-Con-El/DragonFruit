@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import type { IslandMarker } from '@/volumeAnalysis/IslandScan/islandOverlayLogic';
 import type { ModelTransform } from '@/hooks/useModelTransform';
+import { useHoveredIslandId } from '@/volumeAnalysis/Islands/hoverStore';
 
 export interface ExtendedIslandMarker extends IslandMarker {
   radius?: number;
@@ -44,6 +45,7 @@ const fragmentShader = `
   uniform sampler2D uMarkerMetaTexture;
   uniform int uMarkerCount;
   uniform float uSelectedIslandId;
+  uniform float uHoveredIslandId;
   uniform float uOpacity;
   uniform float uTime;
 
@@ -166,13 +168,17 @@ const fragmentShader = `
       float islandId = localIslands[k].id;
       float type = localIslands[k].type;
       bool isSelectedMarker = (uSelectedIslandId >= 0.0 && abs(islandId - uSelectedIslandId) < 0.1);
+      bool isHoveredMarker = (uHoveredIslandId >= 0.0 && abs(islandId - uHoveredIslandId) < 0.1);
 
       int priority = 1;
       if (type == 1.0 || type == 2.0) {
         priority = 2;
       }
-      if (isSelectedMarker) {
+      if (isHoveredMarker) {
         priority = 3;
+      }
+      if (isSelectedMarker) {
+        priority = 4;
       }
 
       bool chooseThis = false;
@@ -200,6 +206,18 @@ const fragmentShader = `
           fillCol = mix(COLOR_SELECTED_VISIBLE, vec3(1.0, 1.0, 1.0), pulse * 0.3);
           borderCol = COLOR_SELECTED_VISIBLE;
           #endif
+        } else if (isHoveredMarker) {
+          float pulse = 0.5 + 0.5 * sin(uTime * 12.0);
+          borderCol = mix(vec3(0.0, 1.0, 1.0), vec3(1.0, 1.0, 1.0), pulse * 0.4);
+          if (type == 1.0) {
+            fillCol = COLOR_MINIMA;
+          } else if (type == 2.0) {
+            fillCol = COLOR_INTERSECTION;
+          } else if (type == 3.0) {
+            fillCol = COLOR_CONSOLIDATED;
+          } else {
+            fillCol = COLOR_VOXEL;
+          }
         } else {
           if (type == 1.0) {
             fillCol = COLOR_MINIMA;
@@ -218,6 +236,9 @@ const fragmentShader = `
 
         // Border outline band thresholding (width 0.02 to 0.15)
         float borderStrength = smoothstep(0.02, 0.06, val) * (1.0 - smoothstep(0.11, 0.15, val));
+        if (isHoveredMarker && !isSelectedMarker) {
+          borderStrength = smoothstep(0.01, 0.04, val) * (1.0 - smoothstep(0.13, 0.18, val));
+        }
         paintColor = mix(fillCol, borderCol, borderStrength);
         paintAlpha = smoothstep(0.02, 0.06, val) * uOpacity;
         painted = true;
@@ -238,6 +259,7 @@ export default function IslandSurfaceDotsOverlay({
   opacity = 0.9,
   transform,
 }: IslandSurfaceDotsOverlayProps) {
+  const hoveredIslandId = useHoveredIslandId();
   
   const clippingPlanes = useMemo(() => {
     const arr: THREE.Plane[] = [];
@@ -338,6 +360,7 @@ export default function IslandSurfaceDotsOverlay({
     uMarkerMetaTexture: { value: markerMetaTexture },
     uMarkerCount: { value: markerCount },
     uSelectedIslandId: { value: selectedIslandId ?? -1 },
+    uHoveredIslandId: { value: hoveredIslandId ?? -1 },
     uOpacity: { value: opacity },
     uTime: { value: 0 },
   });
@@ -347,8 +370,9 @@ export default function IslandSurfaceDotsOverlay({
     uniforms.current.uMarkerMetaTexture.value = markerMetaTexture;
     uniforms.current.uMarkerCount.value = markerCount;
     uniforms.current.uSelectedIslandId.value = selectedIslandId ?? -1;
+    uniforms.current.uHoveredIslandId.value = hoveredIslandId ?? -1;
     uniforms.current.uOpacity.value = opacity;
-  }, [markerTexture, markerMetaTexture, markerCount, selectedIslandId, opacity]);
+  }, [markerTexture, markerMetaTexture, markerCount, selectedIslandId, hoveredIslandId, opacity]);
 
   useFrame((state) => {
     uniforms.current.uTime.value = state.clock.getElapsedTime();

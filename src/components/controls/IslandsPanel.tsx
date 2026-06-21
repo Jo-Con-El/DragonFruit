@@ -5,6 +5,7 @@ import { Card, CardHeader, IconButton } from '@/components/ui/primitives';
 import { useFloatingPanelCollapse } from '@/components/layout/FloatingPanelStack';
 import type { UseIslandsReturn } from '@/volumeAnalysis/Islands/useIslands';
 import { ISLAND_LAYER_COLORS, markerIdFor } from '@/volumeAnalysis/Islands/islandPuckMarkers';
+import { setHoveredIslandId } from '@/volumeAnalysis/Islands/hoverStore';
 
 interface IslandsPanelProps {
   islands: UseIslandsReturn;
@@ -256,6 +257,8 @@ export function IslandsPanel({ islands, hasGeometry, bottomClearancePx = 220 }: 
                         <div
                           key={id}
                           onClick={() => setSelectedMarkerId(id)}
+                          onMouseEnter={() => setHoveredIslandId(id)}
+                          onMouseLeave={() => setHoveredIslandId(null)}
                           className="flex items-center justify-between px-2 py-1 text-[10px] cursor-pointer transition-colors hover:bg-[color-mix(in_srgb,var(--accent),transparent_92%)]"
                           style={{
                             background: isSelected
