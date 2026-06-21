@@ -15,10 +15,11 @@ interface RawLocalMinimum {
  * (plain browser) context — it simply rejects, and the caller treats that as a
  * non-fatal "no minima". No ROIs, no brushes — just coordinates.
  */
-export async function scanMeshMinima(positions: Float32Array): Promise<DetectedIsland[]> {
+export async function scanMeshMinima(positions: Float32Array, k?: number): Promise<DetectedIsland[]> {
   const { invoke } = await import('@tauri-apps/api/core');
   const raw = await invoke<RawLocalMinimum[]>('scan_mesh_minima', {
     positions: Array.from(positions),
+    k,
   });
   return raw.map((m, i) => ({
     id: `m${i}`,

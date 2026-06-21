@@ -18,6 +18,7 @@ export interface VoxelDetectParams {
   connectivity?: 4 | 8;
   /** 3D cluster connectivity across layers: true = 26-conn (default), false = 6-conn. */
   diagonal3D?: boolean;
+  minAreaMm2?: number;
 }
 
 export interface VoxelDetectInput {
@@ -113,14 +114,17 @@ export async function detectVoxelIslands(
   console.log(`[Islands] candidate (unsupported) voxels: ${candidates.size.toLocaleString()}`);
 
   console.time('[Islands] 3D connected-components');
-  const result = buildIslands(
+  const allIslands = buildIslands(
     candidates,
     codec,
     { originX, originZ, px, minZ, layerHeightMm },
     params.diagonal3D !== false,
   );
   console.timeEnd('[Islands] 3D connected-components');
-  console.log(`[Islands] islands detected (pre-filter): ${result.length}`);
+  const result = allIslands.filter(
+    (island) => (island.areaMm2 ?? 0) >= (params.minAreaMm2 ?? 0.02)
+  );
+  console.log(`[Islands] islands detected (pre-filter): ${allIslands.length}, post-filter: ${result.length}`);
   return result;
 }
 

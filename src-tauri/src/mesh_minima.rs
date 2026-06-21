@@ -26,11 +26,34 @@ pub struct LocalMinimum {
     pub seed_triangle_id: u32,
 }
 
+fn get_k_ring_neighbors(vi: usize, k: usize, adj_vertices: &[HashSet<u32>]) -> HashSet<u32> {
+    let mut visited = HashSet::new();
+    let mut current_ring = HashSet::new();
+    current_ring.insert(vi as u32);
+    visited.insert(vi as u32);
+    for _ in 0..k {
+        let mut next_ring = HashSet::new();
+        for &v in &current_ring {
+            if let Some(neighbors) = adj_vertices.get(v as usize) {
+                for &neighbor in neighbors {
+                    if visited.insert(neighbor) {
+                        next_ring.insert(neighbor);
+                    }
+                }
+            }
+        }
+        if next_ring.is_empty() { break; }
+        current_ring = next_ring;
+    }
+    visited.remove(&(vi as u32));
+    visited
+}
+
 /// Tauri IPC command: weld a world-space triangle soup (9 floats per triangle)
 /// and return all local vertical minima. Stateless — no model cache (the cache
 /// in the original only served the dropped brush-proposal feature).
 #[tauri::command]
-pub async fn scan_mesh_minima(positions: Vec<f32>) -> Result<Vec<LocalMinimum>, String> {
+pub async fn scan_mesh_minima(positions: Vec<f32>, k: Option<usize>) -> Result<Vec<LocalMinimum>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         // 1. Weld coincident vertices → indexed (watertight) mesh.
         let mesh = IndexedMesh::from_triangle_soup(&positions, 1e-5);
@@ -62,12 +85,12 @@ pub async fn scan_mesh_minima(positions: Vec<f32>) -> Result<Vec<LocalMinimum>, 
         let mut local_minima = Vec::new();
         for vi in 0..vert_count {
             let z_i = mesh.positions[vi].z;
-            let neighbors = &adj_vertices[vi];
+            let neighbors = get_k_ring_neighbors(vi, k.unwrap_or(2), &adj_vertices);
             if neighbors.is_empty() {
                 continue;
             }
             let mut is_minimum = true;
-            for &neighbor in neighbors {
+            for &neighbor in &neighbors {
                 if mesh.positions[neighbor as usize].z <= z_i {
                     is_minimum = false;
                     break;
@@ -161,6 +184,7 @@ pub async fn scan_mesh_minima_from_path(
     file_path: String,
     matrix: [f32; 16],
     center: [f32; 3],
+    k: Option<usize>,
 ) -> Result<Vec<LocalMinimum>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         // 1. Load and transform mesh
@@ -193,12 +217,12 @@ pub async fn scan_mesh_minima_from_path(
         let mut local_minima = Vec::new();
         for vi in 0..vert_count {
             let z_i = mesh.positions[vi].z;
-            let neighbors = &adj_vertices[vi];
+            let neighbors = get_k_ring_neighbors(vi, k.unwrap_or(2), &adj_vertices);
             if neighbors.is_empty() {
                 continue;
             }
             let mut is_minimum = true;
-            for &neighbor in neighbors {
+            for &neighbor in &neighbors {
                 if mesh.positions[neighbor as usize].z <= z_i {
                     is_minimum = false;
                     break;

@@ -93,6 +93,8 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
   const [maxContourRegions, setMaxContourRegions] = useState<number>(20);
   const [removeSupportedAreaClusters, setRemoveSupportedAreaClusters] = useState<boolean>(false);
   const [areaPerSupport, setAreaPerSupport] = useState<number>(4.0);
+  const [minAreaMm2, setMinAreaMm2] = useState<number>(0.02);
+  const [minimaK, setMinimaK] = useState<number>(2);
 
   // Draft settings states bound to UI inputs
   const [draftPxMm, setDraftPxMm] = useState(0.05);
@@ -108,6 +110,8 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
   const [draftMaxContourRegions, setDraftMaxContourRegions] = useState<number>(20);
   const [draftRemoveSupportedAreaClusters, setDraftRemoveSupportedAreaClusters] = useState<boolean>(false);
   const [draftAreaPerSupport, setDraftAreaPerSupport] = useState<number>(4.0);
+  const [draftMinAreaMm2, setDraftMinAreaMm2] = useState<number>(0.02);
+  const [draftMinimaK, setDraftMinimaK] = useState<number>(2);
 
   const [applyingSettings, setApplyingSettings] = useState(false);
 
@@ -198,14 +202,16 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
           connectivity,
         });
 
-        const voxelMapped: DetectedIsland[] = voxelRaw.map((v) => ({
-          id: v.id,
-          source: 'voxel',
-          contact: new THREE.Vector3(v.contact.x, v.contact.y, v.contact.z),
-          baseZ: v.baseZ,
-          areaMm2: v.areaMm2,
-          layerSpan: v.layerSpan,
-        }));
+        const voxelMapped: DetectedIsland[] = voxelRaw
+          .filter((v) => (v.areaMm2 ?? 0) >= minAreaMm2)
+          .map((v) => ({
+            id: v.id,
+            source: 'voxel',
+            contact: new THREE.Vector3(v.contact.x, v.contact.y, v.contact.z),
+            baseZ: v.baseZ,
+            areaMm2: v.areaMm2,
+            layerSpan: v.layerSpan,
+          }));
         setVoxelIslands(voxelMapped);
 
         console.log(`[Islands] Sideloading minima scan from path: ${sourcePath}`);
@@ -213,6 +219,7 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
           filePath: sourcePath,
           matrix: matrixElements,
           center: centerCoords,
+          k: minimaK,
         });
 
         const minimaMapped: DetectedIsland[] = minimaRaw.map((m, i) => ({
@@ -246,6 +253,7 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
           pxMm,
           supportBufferMm: supportBufMm,
           connectivity,
+          minAreaMm2,
         };
         const voxel = await detectVoxelIslands(world, layerHeightMm, params, (done, total) =>
           setScanProgress({ done, total }),
@@ -253,7 +261,7 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
         setVoxelIslands(voxel);
 
         try {
-          const minima = await scanMeshMinima(world.positions);
+          const minima = await scanMeshMinima(world.positions, minimaK);
           setMinimaIslands(minima);
         } catch (err) {
           console.error('[Islands] mesh-minima scan failed', err);
@@ -265,7 +273,7 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
     } else {
       setScanning(false);
     }
-  }, [geom, transform, sourcePath, prepareWorldGeom, layerHeightMm, pxMm, supportBufMm, connectivity]);
+  }, [geom, transform, sourcePath, prepareWorldGeom, layerHeightMm, pxMm, supportBufMm, connectivity, minAreaMm2, minimaK]);
 
   // Pass 1: Proposed consolidation & classification
   const proposedConsolidated = useMemo(() => {
@@ -637,6 +645,8 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
       setMaxContourRegions(draftMaxContourRegions);
       setRemoveSupportedAreaClusters(draftRemoveSupportedAreaClusters);
       setAreaPerSupport(draftAreaPerSupport);
+      setMinAreaMm2(draftMinAreaMm2);
+      setMinimaK(draftMinimaK);
       setApplyingSettings(false);
     }, 50);
   }, [
@@ -653,6 +663,8 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
     draftMaxContourRegions,
     draftRemoveSupportedAreaClusters,
     draftAreaPerSupport,
+    draftMinAreaMm2,
+    draftMinimaK,
   ]);
 
   const resetSettings = useCallback(() => {
@@ -669,6 +681,8 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
     setDraftMaxContourRegions(20);
     setDraftRemoveSupportedAreaClusters(false);
     setDraftAreaPerSupport(4.0);
+    setDraftMinAreaMm2(0.02);
+    setDraftMinimaK(2);
   }, []);
 
   const hasPendingChanges = useMemo(() => {
@@ -685,7 +699,9 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
       enableContourRegions !== draftEnableContourRegions ||
       maxContourRegions !== draftMaxContourRegions ||
       removeSupportedAreaClusters !== draftRemoveSupportedAreaClusters ||
-      areaPerSupport !== draftAreaPerSupport
+      areaPerSupport !== draftAreaPerSupport ||
+      minAreaMm2 !== draftMinAreaMm2 ||
+      minimaK !== draftMinimaK
     );
   }, [
     pxMm, draftPxMm,
@@ -701,6 +717,8 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
     maxContourRegions, draftMaxContourRegions,
     removeSupportedAreaClusters, draftRemoveSupportedAreaClusters,
     areaPerSupport, draftAreaPerSupport,
+    minAreaMm2, draftMinAreaMm2,
+    minimaK, draftMinimaK,
   ]);
 
   return {
@@ -758,6 +776,10 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
     setRemoveSupportedAreaClusters,
     areaPerSupport,
     setAreaPerSupport,
+    minAreaMm2,
+    setMinAreaMm2,
+    minimaK,
+    setMinimaK,
     tableStats,
 
     // Draft states
@@ -787,6 +809,10 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
     setDraftRemoveSupportedAreaClusters,
     draftAreaPerSupport,
     setDraftAreaPerSupport,
+    draftMinAreaMm2,
+    setDraftMinAreaMm2,
+    draftMinimaK,
+    setDraftMinimaK,
     applySettings,
     resetSettings,
     applyingSettings,
