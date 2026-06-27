@@ -598,9 +598,8 @@ pub struct CombinedIslandScanResult {
 }
 
 /// Single Tauri command that loads the mesh once and runs both the voxel island
-/// scan (batch pipeline with rayon-parallel rasterization) and the mesh minima
-/// scan. Avoids the double disk-I/O and double transform of calling the two
-/// path commands separately.
+/// scan (batch pipeline with Z-bucketed rayon-parallel rasterization) and the mesh
+/// minima scan **concurrently**. Surface-snapping projections are also parallelized.
 #[tauri::command]
 pub async fn scan_islands_from_path(
     file_path: String,
@@ -620,31 +619,21 @@ pub async fn scan_islands_from_path(
         let vert_count = mesh.vertex_count();
         log::info!(
             "[islands-combined] Mesh loaded: {} triangles, {} vertices",
-            tri_count,
-            vert_count,
+            tri_count, vert_count,
         );
 
         let bbox = mesh.bbox();
         let soup = mesh.to_triangle_soup();
         let triangles = dragonfruit_slicing_engine::geometry::parse_triangles(&soup);
 
-        // ── 2. Voxel island scan (batch pipeline for parallelism) ────────
         let ox = bbox.min.x as f64;
         let oz = -bbox.max.y as f64;
-        let gw = ((bbox.max.x as f64 - bbox.min.x as f64) / px_mm)
-            .ceil()
-            .max(1.0) as i32;
-        let gh = ((bbox.max.y as f64 - bbox.min.y as f64) / px_mm)
-            .ceil()
-            .max(1.0) as i32;
+        let gw = ((bbox.max.x as f64 - bbox.min.x as f64) / px_mm).ceil().max(1.0) as i32;
+        let gh = ((bbox.max.y as f64 - bbox.min.y as f64) / px_mm).ceil().max(1.0) as i32;
         let model_height = bbox.max.z as f64 - bbox.min.z as f64;
         let num_layers = (model_height / layer_height_mm).ceil().max(0.0) as usize;
 
-        let connectivity_enum = if connectivity == 8 {
-            Connectivity::Eight
-        } else {
-            Connectivity::Four
-        };
+        let connectivity_enum = if connectivity == 8 { Connectivity::Eight } else { Connectivity::Four };
 
         let job = IslandScanJob {
             px_mm,
@@ -652,53 +641,57 @@ pub async fn scan_islands_from_path(
             connectivity: connectivity_enum,
             min_island_area_mm2: 0.0001,
             layer_height_mm,
-            grid: GridRef {
-                origin_x: ox,
-                origin_z: oz,
-                width: gw,
-                height: gh,
-                px_mm,
-            },
+            grid: GridRef { origin_x: ox, origin_z: oz, width: gw, height: gh, px_mm },
             num_layers: num_layers as u32,
             min_overlap_px: 1,
             overlap_neighborhood_px: 1,
             candidate_only: true,
         };
 
-        log::info!(
-            "[islands-combined] Rasterizing {} layers (batch, {}×{} grid)…",
-            num_layers,
-            gw,
-            gh,
-        );
-        let rasterize_start = std::time::Instant::now();
-        let (masks, _, _, _, _, _) = rasterize_for_island_scan(
-            &triangles,
-            bbox.min.x as f64,
-            bbox.max.x as f64,
-            bbox.min.y as f64,
-            bbox.max.y as f64,
-            bbox.min.z as f64,
-            bbox.max.z as f64,
-            px_mm,
-            layer_height_mm,
-        );
-        log::info!(
-            "[islands-combined] Rasterized {} layers in {:.1}s",
-            num_layers,
-            rasterize_start.elapsed().as_secs_f64(),
-        );
+        // ── 2. Run voxel rasterization + scan AND minima scan CONCURRENTLY ──
+        let (scan_result, minima_islands) = std::thread::scope(|s| {
+            // Thread A: voxel rasterization + island scan
+            let voxel_handle = s.spawn(|| {
+                log::info!(
+                    "[islands-combined] Rasterizing {} layers (batch, {}×{} grid)…",
+                    num_layers, gw, gh,
+                );
+                let rasterize_start = std::time::Instant::now();
+                let (masks, _, _, _, _, _) = rasterize_for_island_scan(
+                    &triangles,
+                    bbox.min.x as f64, bbox.max.x as f64,
+                    bbox.min.y as f64, bbox.max.y as f64,
+                    bbox.min.z as f64, bbox.max.z as f64,
+                    px_mm, layer_height_mm,
+                );
+                let rasterize_sec = rasterize_start.elapsed().as_secs_f64();
+                log::info!("[islands-combined] Rasterized {} layers in {:.1}s", num_layers, rasterize_sec);
 
-        log::info!("[islands-combined] Running island scan (batch pipeline)…");
-        let scan_start = std::time::Instant::now();
-        let scan_result = run_island_scan(&job, &masks, None);
-        log::info!(
-            "[islands-combined] Island scan done in {:.1}s — {} islands",
-            scan_start.elapsed().as_secs_f64(),
-            scan_result.islands.len(),
-        );
+                log::info!("[islands-combined] Running island scan (batch pipeline)…");
+                let scan_start = std::time::Instant::now();
+                let result = run_island_scan(&job, &masks, None);
+                let scan_sec = scan_start.elapsed().as_secs_f64();
+                log::info!(
+                    "[islands-combined] Island scan done in {:.1}s — {} islands (rasterize {:.1}s + scan {:.1}s = {:.1}s)",
+                    scan_sec + rasterize_sec, result.islands.len(), rasterize_sec, scan_sec, rasterize_sec + scan_sec,
+                );
+                result
+            });
 
-        // ── 2a. Build Z-bucket index for projection raycasting ────────
+            // Thread B: mesh minima scan (uses rayon internally)
+            let minima_handle = s.spawn(|| {
+                log::info!("[islands-combined] Running mesh minima scan (k={})…", k.unwrap_or(2));
+                let minima_start = std::time::Instant::now();
+                let minima = scan_minima_internal(&mesh, k);
+                let minima_sec = minima_start.elapsed().as_secs_f64();
+                log::info!("[islands-combined] Minima scan done in {:.1}s — {} minima", minima_sec, minima.len());
+                minima
+            });
+
+            (voxel_handle.join().unwrap(), minima_handle.join().unwrap())
+        });
+
+        // ── 3. Build Z-bucket index for surface-snapping projections ──────
         let z_min = bbox.min.z;
         let z_max = bbox.max.z;
         let z_range = (z_max - z_min) as f32;
@@ -709,12 +702,8 @@ pub async fn scan_islands_from_path(
             let t_min_z = v0.z.min(v1.z).min(v2.z);
             let t_max_z = v0.z.max(v1.z).max(v2.z);
             if z_range > 1e-5 {
-                let b_start = (((t_min_z - z_min) / z_range) * (num_buckets as f32 - 1.0))
-                    .floor()
-                    .max(0.0) as usize;
-                let b_end = (((t_max_z - z_min) / z_range) * (num_buckets as f32 - 1.0))
-                    .ceil()
-                    .min(num_buckets as f32 - 1.0) as usize;
+                let b_start = (((t_min_z - z_min) / z_range) * (num_buckets as f32 - 1.0)).floor().max(0.0) as usize;
+                let b_end = (((t_max_z - z_min) / z_range) * (num_buckets as f32 - 1.0)).ceil().min(num_buckets as f32 - 1.0) as usize;
                 for b in b_start..=b_end {
                     z_buckets[b].push(fi as u32);
                 }
@@ -723,153 +712,54 @@ pub async fn scan_islands_from_path(
             }
         }
 
-        // Surface-snap helper (same as scan_voxel_islands_from_path)
-        let snap_to_mesh = |raw_x: f32, raw_y: f32, raw_z: f32, mesh: &IndexedMesh| -> Vec3 {
-            let epsilon = (layer_height_mm * 1.5) as f32;
-            let mut best_hit: Option<(Vec3, f32)> = None;
-            let mut best_hit_normal: Option<Vec3> = None;
+        // ── 4. Surface-snap contacts in parallel via rayon ────────────────
+        let epsilon = (layer_height_mm * 1.5) as f32;
+        let snap_start = std::time::Instant::now();
+        let voxel_islands: Vec<VoxelIsland> = scan_result
+            .islands
+            .par_iter()
+            .enumerate()
+            .map(|(idx, island)| {
+                let (contact_x, contact_y, contact_z) = if let Some(seed) = island.seed_voxel {
+                    (
+                        (ox + seed.x * px_mm + px_mm * 0.5) as f32,
+                        (-(oz + seed.y * px_mm)) as f32,
+                        (bbox.min.z as f64 + island.first_layer as f64 * layer_height_mm) as f32,
+                    )
+                } else if let Some(c) = island.centroid {
+                    (
+                        (ox + c.x * px_mm + px_mm * 0.5) as f32,
+                        (-(oz + c.y * px_mm)) as f32,
+                        (bbox.min.z as f64 + island.first_layer as f64 * layer_height_mm) as f32,
+                    )
+                } else {
+                    (0.0_f32, 0.0_f32, 0.0_f32)
+                };
 
-            let search_min_z = (raw_z - epsilon) as f64;
-            let search_max_z = (raw_z + epsilon) as f64;
+                let contact = snap_to_surface(
+                    contact_x, contact_y, contact_z,
+                    epsilon, &z_buckets, z_min, z_range, num_buckets, &mesh,
+                );
 
-            let mut candidates = HashSet::new();
-            if z_range > 1e-5 {
-                let b_start = (((search_min_z - z_min as f64) / z_range as f64)
-                    * (num_buckets as f64 - 1.0))
-                    .floor()
-                    .max(0.0) as usize;
-                let b_end = (((search_max_z - z_min as f64) / z_range as f64)
-                    * (num_buckets as f64 - 1.0))
-                    .ceil()
-                    .min(num_buckets as f64 - 1.0) as usize;
-                for b in b_start..=b_end {
-                    for &fi in &z_buckets[b] {
-                        candidates.insert(fi);
-                    }
-                }
-            } else {
-                candidates.extend(z_buckets[0].iter().cloned());
-            }
-
-            let ray_down_orig = Vec3::new(raw_x, raw_y, raw_z + epsilon);
-            let ray_down_dir = Vec3::new(0.0, 0.0, -1.0);
-            let ray_up_orig = Vec3::new(raw_x, raw_y, raw_z - epsilon);
-            let ray_up_dir = Vec3::new(0.0, 0.0, 1.0);
-
-            for fi in candidates {
-                let [v0, v1, v2] = mesh.tri_positions(fi);
-                if let Some(t) =
-                    ray_triangle_intersect(&ray_down_orig, &ray_down_dir, &v0, &v1, &v2)
-                {
-                    if t <= 2.0 * epsilon {
-                        let hit_z = ray_down_orig.z - t;
-                        let normal = mesh.tri_normal(fi);
-                        let is_downward = normal.z < 0.0;
-                        let dist_z = (hit_z - raw_z).abs();
-                        let replace = match best_hit {
-                            None => true,
-                            Some((_, best_dist)) => {
-                                let best_normal = best_hit_normal.unwrap_or(Vec3::ZERO);
-                                let best_was_downward = best_normal.z < 0.0;
-                                if is_downward && !best_was_downward {
-                                    true
-                                } else if !is_downward && best_was_downward {
-                                    false
-                                } else {
-                                    dist_z < best_dist
-                                }
-                            }
-                        };
-                        if replace {
-                            best_hit = Some((Vec3::new(raw_x, raw_y, hit_z), dist_z));
-                            best_hit_normal = Some(normal);
-                        }
-                    }
-                }
-                if let Some(t) = ray_triangle_intersect(&ray_up_orig, &ray_up_dir, &v0, &v1, &v2) {
-                    if t <= 2.0 * epsilon {
-                        let hit_z = ray_up_orig.z + t;
-                        let normal = mesh.tri_normal(fi);
-                        let is_downward = normal.z < 0.0;
-                        let dist_z = (hit_z - raw_z).abs();
-                        let replace = match best_hit {
-                            None => true,
-                            Some((_, best_dist)) => {
-                                let best_normal = best_hit_normal.unwrap_or(Vec3::ZERO);
-                                let best_was_downward = best_normal.z < 0.0;
-                                if is_downward && !best_was_downward {
-                                    true
-                                } else if !is_downward && best_was_downward {
-                                    false
-                                } else {
-                                    dist_z < best_dist
-                                }
-                            }
-                        };
-                        if replace {
-                            best_hit = Some((Vec3::new(raw_x, raw_y, hit_z), dist_z));
-                            best_hit_normal = Some(normal);
-                        }
-                    }
-                }
-            }
-            best_hit
-                .map(|(pt, _)| pt)
-                .unwrap_or(Vec3::new(raw_x, raw_y, raw_z))
-        };
-
-        // ── 3. Convert to VoxelIslands ──────────────────────────────────
-        let mut voxel_islands = Vec::new();
-        for (idx, island) in scan_result.islands.iter().enumerate() {
-            if let Some(seed) = island.seed_voxel {
-                let contact_x = ox + seed.x * px_mm + px_mm * 0.5;
-                let contact_y = -(oz + seed.y * px_mm);
-                let contact_z = bbox.min.z as f64 + island.first_layer as f64 * layer_height_mm;
-                let contact =
-                    snap_to_mesh(contact_x as f32, contact_y as f32, contact_z as f32, &mesh);
-
-                voxel_islands.push(VoxelIsland {
+                VoxelIsland {
                     id: format!("v{}", idx),
                     source: "voxel".to_string(),
                     contact,
-                    base_z: contact_z,
+                    base_z: contact_z as f64,
                     area_mm2: island.total_area_mm2 as f32,
                     layer_span: [island.first_layer, island.last_layer],
-                });
-            } else if let Some(c) = island.centroid {
-                let contact_x = ox + c.x * px_mm + px_mm * 0.5;
-                let contact_y = -(oz + c.y * px_mm);
-                let contact_z = bbox.min.z as f64 + island.first_layer as f64 * layer_height_mm;
-                let contact =
-                    snap_to_mesh(contact_x as f32, contact_y as f32, contact_z as f32, &mesh);
-
-                voxel_islands.push(VoxelIsland {
-                    id: format!("v{}", idx),
-                    source: "voxel".to_string(),
-                    contact,
-                    base_z: contact_z,
-                    area_mm2: island.total_area_mm2 as f32,
-                    layer_span: [island.first_layer, island.last_layer],
-                });
-            }
-        }
-
+                }
+            })
+            .collect();
         log::info!(
-            "[islands-combined] Voxel scan: {} islands from {} layers",
+            "[islands-combined] Surface snapping done in {:.1}s for {} islands",
+            snap_start.elapsed().as_secs_f64(),
             voxel_islands.len(),
-            num_layers,
         );
 
-        // ── 4. Mesh minima scan ─────────────────────────────────────────
         log::info!(
-            "[islands-combined] Running mesh minima scan (k={})…",
-            k.unwrap_or(2)
-        );
-        let minima_start = std::time::Instant::now();
-        let minima_islands = scan_minima_internal(&mesh, k);
-        log::info!(
-            "[islands-combined] Minima scan done in {:.1}s — {} minima",
-            minima_start.elapsed().as_secs_f64(),
+            "[islands-combined] Complete: {} voxel islands, {} minima islands",
+            voxel_islands.len(),
             minima_islands.len(),
         );
 
@@ -880,6 +770,109 @@ pub async fn scan_islands_from_path(
     })
     .await
     .map_err(|e| format!("Combined island scan panicked: {e}"))?
+}
+
+/// Surface-snap a raw contact coordinate to the nearest mesh surface triangle
+/// via bidirectional raycasting within a Z-bucket index. Thread-safe: reads
+/// mesh and z_buckets immutably.
+fn snap_to_surface(
+    raw_x: f32,
+    raw_y: f32,
+    raw_z: f32,
+    epsilon: f32,
+    z_buckets: &[Vec<u32>],
+    z_min: f32,
+    z_range: f32,
+    num_buckets: usize,
+    mesh: &IndexedMesh,
+) -> Vec3 {
+    let mut best_hit: Option<(Vec3, f32)> = None;
+    let mut best_hit_normal: Option<Vec3> = None;
+
+    let search_min_z = (raw_z - epsilon) as f64;
+    let search_max_z = (raw_z + epsilon) as f64;
+
+    let mut candidates = HashSet::new();
+    if z_range > 1e-5 {
+        let b_start = (((search_min_z - z_min as f64) / z_range as f64)
+            * (num_buckets as f64 - 1.0))
+            .floor()
+            .max(0.0) as usize;
+        let b_end = (((search_max_z - z_min as f64) / z_range as f64) * (num_buckets as f64 - 1.0))
+            .ceil()
+            .min(num_buckets as f64 - 1.0) as usize;
+        for b in b_start..=b_end {
+            for &fi in &z_buckets[b] {
+                candidates.insert(fi);
+            }
+        }
+    } else {
+        candidates.extend(z_buckets[0].iter().cloned());
+    }
+
+    let ray_down_orig = Vec3::new(raw_x, raw_y, raw_z + epsilon);
+    let ray_down_dir = Vec3::new(0.0, 0.0, -1.0);
+    let ray_up_orig = Vec3::new(raw_x, raw_y, raw_z - epsilon);
+    let ray_up_dir = Vec3::new(0.0, 0.0, 1.0);
+
+    for fi in candidates {
+        let [v0, v1, v2] = mesh.tri_positions(fi);
+        if let Some(t) = ray_triangle_intersect(&ray_down_orig, &ray_down_dir, &v0, &v1, &v2) {
+            if t <= 2.0 * epsilon {
+                let hit_z = ray_down_orig.z - t;
+                let normal = mesh.tri_normal(fi);
+                let is_downward = normal.z < 0.0;
+                let dist_z = (hit_z - raw_z).abs();
+                let replace = match best_hit {
+                    None => true,
+                    Some((_, best_dist)) => {
+                        let best_normal = best_hit_normal.unwrap_or(Vec3::ZERO);
+                        let best_was_downward = best_normal.z < 0.0;
+                        if is_downward && !best_was_downward {
+                            true
+                        } else if !is_downward && best_was_downward {
+                            false
+                        } else {
+                            dist_z < best_dist
+                        }
+                    }
+                };
+                if replace {
+                    best_hit = Some((Vec3::new(raw_x, raw_y, hit_z), dist_z));
+                    best_hit_normal = Some(normal);
+                }
+            }
+        }
+        if let Some(t) = ray_triangle_intersect(&ray_up_orig, &ray_up_dir, &v0, &v1, &v2) {
+            if t <= 2.0 * epsilon {
+                let hit_z = ray_up_orig.z + t;
+                let normal = mesh.tri_normal(fi);
+                let is_downward = normal.z < 0.0;
+                let dist_z = (hit_z - raw_z).abs();
+                let replace = match best_hit {
+                    None => true,
+                    Some((_, best_dist)) => {
+                        let best_normal = best_hit_normal.unwrap_or(Vec3::ZERO);
+                        let best_was_downward = best_normal.z < 0.0;
+                        if is_downward && !best_was_downward {
+                            true
+                        } else if !is_downward && best_was_downward {
+                            false
+                        } else {
+                            dist_z < best_dist
+                        }
+                    }
+                };
+                if replace {
+                    best_hit = Some((Vec3::new(raw_x, raw_y, hit_z), dist_z));
+                    best_hit_normal = Some(normal);
+                }
+            }
+        }
+    }
+    best_hit
+        .map(|(pt, _)| pt)
+        .unwrap_or(Vec3::new(raw_x, raw_y, raw_z))
 }
 
 /// Möller–Trumbore ray-triangle intersection. Returns `Some(t)` for a hit at t>ε.
