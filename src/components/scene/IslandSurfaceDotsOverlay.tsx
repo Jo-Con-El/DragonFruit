@@ -98,7 +98,7 @@ const fragmentShader = `
       localIslands[k].val = 0.0;
     }
 
-    for (int i = 0; i < 200; i++) {
+    for (int i = 0; i < 80; i++) {
       int idx = startIdx + i;
       if (idx >= uMarkerCount) break;
 

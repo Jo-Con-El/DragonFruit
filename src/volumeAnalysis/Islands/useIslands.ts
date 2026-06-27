@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { GeometryWithBounds } from '@/hooks/useStlGeometry';
 import { quaternionFromGlobalEuler } from '@/utils/rotation';
@@ -231,6 +231,10 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
           seedTriangleId: m.seedTriangleId,
         }));
         setMinimaIslands(minimaMapped);
+        // Cache the scan results for this model
+        if (sourcePath) {
+          scanCacheRef.current.set(sourcePath, { voxel: voxelMapped, minima: minimaMapped });
+        }
 
         usedSideload = true;
       } catch (err) {
@@ -263,9 +267,16 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
         try {
           const minima = await scanMeshMinima(world.positions, minimaK);
           setMinimaIslands(minima);
+          // Cache the scan results for this model
+          if (sourcePath) {
+            scanCacheRef.current.set(sourcePath, { voxel, minima });
+          }
         } catch (err) {
           console.error('[Islands] mesh-minima scan failed', err);
           setMinimaIslands([]);
+          if (sourcePath) {
+            scanCacheRef.current.set(sourcePath, { voxel, minima: [] });
+          }
         }
       } finally {
         setScanning(false);
@@ -560,12 +571,33 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
     setSelectedMarkerId(null);
   }, []);
 
-  // Clear islands selection/cached data on activeTab, sourcePath, geom or transform changes
+  // Per-model scan cache: sourcePath → { voxel, minima }
+  const scanCacheRef = useRef<Map<string, { voxel: DetectedIsland[]; minima: DetectedIsland[] }>>(new Map());
+  const prevSourcePathRef = useRef<string | null | undefined>(undefined);
+
+  // On sourcePath change: restore from cache instead of clearing
+  useEffect(() => {
+    const prev = prevSourcePathRef.current;
+    prevSourcePathRef.current = sourcePath;
+    if (!sourcePath || prev === sourcePath) return;
+
+    const cached = scanCacheRef.current.get(sourcePath);
+    if (cached) {
+      setVoxelIslands(cached.voxel);
+      setMinimaIslands(cached.minima);
+      setSelectedMarkerId(null);
+      return;
+    }
+
+    // No cache entry — clear for new model
+    clear();
+  }, [sourcePath, clear]);
+
+  // On transform/geom change: always clear (scan is invalidated)
   useEffect(() => {
     clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    activeTab,
-    sourcePath,
     geom,
     transform.position.x,
     transform.position.y,
@@ -576,7 +608,6 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
     transform.scale.x,
     transform.scale.y,
     transform.scale.z,
-    clear,
   ]);
 
   const selectNext = useCallback(() => {
