@@ -480,21 +480,19 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
   );
   const intersectionPucks = useMemo(
     () => buildIslandPucks(
-      showIntersection 
-        ? annotatedIslands.filter((i) => {
-            if (i.class !== 'intersection' || i.source !== 'voxel') return false;
-            if (i.grounded && !filterToggles.showPlateContact) return false;
-            
-            const isContoured = contouredIds.has(i.id);
-            if (isContoured) {
-              return !removeSupportedAreaClusters || !i.fullySupported;
-            } else {
-              return !i.supported;
-            }
-          })
-        : []
+      annotatedIslands.filter((i) => {
+        if (i.class !== 'intersection' || i.source !== 'voxel') return false;
+        if (i.grounded && !filterToggles.showPlateContact) return false;
+        
+        const isContoured = contouredIds.has(i.id);
+        if (isContoured) {
+          return !removeSupportedAreaClusters || !i.fullySupported;
+        } else {
+          return !i.supported;
+        }
+      })
     ),
-    [annotatedIslands, showIntersection, filterToggles.showPlateContact, contouredIds, removeSupportedAreaClusters],
+    [annotatedIslands, filterToggles.showPlateContact, contouredIds, removeSupportedAreaClusters],
   );
 
   const byMarkerId = useMemo(() => {
@@ -505,11 +503,13 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
     for (const [id, island] of minimaOnlyPucks.byMarkerId) {
       merged.set(id, island);
     }
-    for (const [id, island] of intersectionPucks.byMarkerId) {
-      merged.set(id, island);
+    if (showIntersection || showVoxelOnly) {
+      for (const [id, island] of intersectionPucks.byMarkerId) {
+        merged.set(id, island);
+      }
     }
     return merged;
-  }, [voxelOnlyPucks, minimaOnlyPucks, intersectionPucks]);
+  }, [voxelOnlyPucks, minimaOnlyPucks, intersectionPucks, showIntersection, showVoxelOnly]);
 
   const islandMarkers = useMemo(() => {
     const markers: any[] = [];
@@ -546,8 +546,8 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
         }
       }
 
-      // 2. If the island is NOT supported (or if filterToggles.showAlreadySupported is checked), push the red dot marker of type 2
-      if (island && (!island.supported || filterToggles.showAlreadySupported)) {
+      // 2. Coincident red dot — only when showIntersection is enabled
+      if (showIntersection && island && (!island.supported || filterToggles.showAlreadySupported)) {
         markers.push({ ...m, radius: 0.1, type: 2, islandId: m.id });
       }
     });
@@ -563,6 +563,7 @@ export function useIslands({ geom, transform, layerHeightMm, supportTips, plateZ
     filterToggles,
     pxMm,
     showVoxelOnly,
+    showIntersection,
   ]);
 
   const clear = useCallback(() => {
