@@ -4419,14 +4419,12 @@ export default function Home() {
     const inBoundsModelIds = new Set<string>();
 
     for (const model of visibleModels) {
-      const effectiveTransform =
-        (scene.activeModelId === model.id && displayActiveModelId === scene.activeModelId)
-          ? transformMgr.transform
-          : model.transform;
-
-      const approxBounds = computeApproxModelWorldBounds(model.geometry, effectiveTransform);
+      // Use stored transform — bounds don't change on selection.
+      // Previously depended on scene.activeModelId, causing recomputation
+      // (including computePreciseModelWorldBounds, O(vertices)) on every click.
+      const approxBounds = computeApproxModelWorldBounds(model.geometry, model.transform);
       const bounds = isBoundsOutsideVolume(approxBounds, resinBuildVolumeBounds, BUILD_VOLUME_BOUNDS_EPS_MM)
-        ? computePreciseModelWorldBounds(model.geometry, effectiveTransform)
+        ? computePreciseModelWorldBounds(model.geometry, model.transform)
         : approxBounds;
 
       if (!isBoundsOutsideVolume(bounds, resinBuildVolumeBounds, BUILD_VOLUME_BOUNDS_EPS_MM)) {
@@ -4436,11 +4434,8 @@ export default function Home() {
 
     return inBoundsModelIds;
   }, [
-    displayActiveModelId,
     resinBuildVolumeBounds,
-    scene.activeModelId,
     scene.models,
-    transformMgr.transform,
   ]);
 
   const visibleResinModels = React.useMemo(() => {
@@ -4451,7 +4446,9 @@ export default function Home() {
 
   const resinEstimateComputationSignature = React.useMemo(() => {
     if (visibleResinModels.length === 0) return '';
-
+    // Stable signature — only changes when geometry or scale actually changes,
+    // NOT when selection changes. Prevents the resin estimate useEffect from
+    // firing extra state updates on every model click.
     const parts = visibleResinModels.map((model) => {
       const geometry = model.geometry.geometry;
       const positionAttr = geometry.getAttribute('position') as ({ version?: number; data?: { version?: number } } | null);

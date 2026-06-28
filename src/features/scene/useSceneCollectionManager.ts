@@ -143,7 +143,23 @@ function cloneLoadedModel(model: LoadedModel): LoadedModel {
   return {
     ...model,
     transform: cloneTransform(model.transform),
-    meshModifiers: model.meshModifiers ? clonePlainObject(model.meshModifiers) : undefined,
+    meshModifiers: model.meshModifiers ? cloneMeshModifiersShallow(model.meshModifiers) : undefined,
+  };
+}
+
+/**
+ * Lightweight shallow clone — avoids JSON round-trip through MB-scale
+ * base64 strings (cavityPositionsBase64, holePunchSourcePositionsBase64)
+ * that LYS imports carry in meshModifiers.
+ */
+function cloneMeshModifiersShallow(modifiers: ModelMeshModifiers): ModelMeshModifiers {
+  return {
+    ...modifiers,
+    hollowing: modifiers.hollowing ? { ...modifiers.hollowing } : undefined,
+    holePunches: modifiers.holePunches ? modifiers.holePunches.map((p) => ({ ...p })) : undefined,
+    holePunchAppliedPlacements: modifiers.holePunchAppliedPlacements
+      ? modifiers.holePunchAppliedPlacements.map((p) => ({ ...p }))
+      : undefined,
   };
 }
 
@@ -3023,7 +3039,7 @@ export function useSceneCollectionManager() {
         },
         color: source.color,
         polygonCount: source.polygonCount,
-        meshModifiers: source.meshModifiers ? clonePlainObject(source.meshModifiers) : undefined,
+        meshModifiers: source.meshModifiers ? cloneMeshModifiersShallow(source.meshModifiers) : undefined,
         supportClipboard,
       },
     ]);
@@ -3052,7 +3068,7 @@ export function useSceneCollectionManager() {
         },
         color: source.color,
         polygonCount: source.polygonCount,
-        meshModifiers: source.meshModifiers ? clonePlainObject(source.meshModifiers) : undefined,
+        meshModifiers: source.meshModifiers ? cloneMeshModifiersShallow(source.meshModifiers) : undefined,
         supportClipboard,
       };
     }));
@@ -3091,7 +3107,7 @@ export function useSceneCollectionManager() {
       visible: true,
       color: first.color,
       polygonCount: first.polygonCount,
-      meshModifiers: first.meshModifiers ? clonePlainObject(first.meshModifiers) : undefined,
+      meshModifiers: first.meshModifiers ? cloneMeshModifiersShallow(first.meshModifiers) : undefined,
     };
 
     const nextModels = [...models, pastedModel];
@@ -3465,7 +3481,7 @@ export function useSceneCollectionManager() {
         visible: true,
         color: entry.color,
         polygonCount: entry.polygonCount,
-        meshModifiers: entry.meshModifiers ? clonePlainObject(entry.meshModifiers) : undefined,
+        meshModifiers: entry.meshModifiers ? cloneMeshModifiersShallow(entry.meshModifiers) : undefined,
       };
     });
 
@@ -3538,7 +3554,7 @@ export function useSceneCollectionManager() {
         visible: source.visible,
         color: source.color,
         polygonCount: source.polygonCount,
-        meshModifiers: source.meshModifiers ? clonePlainObject(source.meshModifiers) : undefined,
+        meshModifiers: source.meshModifiers ? cloneMeshModifiersShallow(source.meshModifiers) : undefined,
       };
     });
 
@@ -3809,7 +3825,7 @@ export function useSceneCollectionManager() {
           color: '#a3a3a3',
           polygonCount: processed.geometry.getAttribute('position').count / 3,
           ignoreAutoLift: true,
-          meshModifiers: meshModifiers ? clonePlainObject(meshModifiers) : undefined,
+          meshModifiers: meshModifiers ? cloneMeshModifiersShallow(meshModifiers) : undefined,
           manualZMoveOverride: true,
         };
 
@@ -4045,7 +4061,7 @@ export function useSceneCollectionManager() {
             visible: model.visible,
             color,
             polygonCount,
-            meshModifiers: model.meshModifiers ? clonePlainObject(model.meshModifiers) : undefined,
+            meshModifiers: model.meshModifiers ? cloneMeshModifiersShallow(model.meshModifiers) : undefined,
             ignoreAutoLift: true,
             manualZMoveOverride: true,
           });
