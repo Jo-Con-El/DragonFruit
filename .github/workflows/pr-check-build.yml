@@ -89,7 +89,9 @@ jobs:
           echo "commit_hash=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Export Apple notarization credentials for nightly builds
-        if: contains(github.event.pull_request.labels.*.name, 'nightly-build')
+        if: >-
+          contains(github.event.pull_request.labels.*.name, 'preview-build') ||
+          contains(github.event.pull_request.labels.*.name, 'nightly-build')
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}

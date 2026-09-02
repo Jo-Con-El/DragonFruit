@@ -224,7 +224,8 @@ We are dropping the `nightly` codeword in favor of `preview` or
 
 Until we drop the term, the reality is this: Separate from all of the above:
 `build-nightly.yml` builds an arbitrary branch on demand (`workflow_dispatch`
-or a `/nightly` PR comment) and publishes a rolling `nightly_{branch}`
+or a `/preview` PR comment — `/nightly` still works but is deprecated) and
+publishes a rolling `nightly_{branch}`
 prerelease so a reviewer can download and try an exact commit. It is **not**
 a scheduled build of `dev`, doesn't participate in the versioning/channel
 model above, and isn't wired to the auto-updater at all. The name is

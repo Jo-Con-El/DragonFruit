@@ -33,15 +33,21 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # "nightly" is being retired in favour of "preview" (see docs/dev/releases.md).
+  # Both spellings are accepted while the old one is phased out; the new label is
+  # the one this workflow applies.
+  PREVIEW_LABEL: preview-build
   NIGHTLY_LABEL: nightly-build
 
 jobs:
-  # ── Comment handler: /nightly or @github-actions build nightly ──────────
+  # ── Comment handler: /preview (or the deprecated /nightly) ──────────────
   activate-nightly:
     if: >
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request &&
-      (startsWith(github.event.comment.body, '/nightly') ||
+      (startsWith(github.event.comment.body, '/preview') ||
+       startsWith(github.event.comment.body, '/nightly') ||
+       startsWith(github.event.comment.body, '@github-actions build preview') ||
        startsWith(github.event.comment.body, '@github-actions build nightly'))
     runs-on: ubuntu-latest
     permissions:
@@ -132,25 +138,35 @@ jobs:
           result-encoding: string
           script: |
             const body = context.payload.comment.body;
-            // Everything after "/nightly " (with trailing space) is the custom name
-            const prefix = '/nightly';
-            if (body.startsWith(prefix)) {
+            // Everything after the command (with trailing space) is the custom
+            // name. Both spellings are accepted, and the prefix that actually
+            // matched is the one stripped — slicing a hard-coded '/nightly' off
+            // a '/preview' comment silently drops the name.
+            for (const prefix of ['/preview', '/nightly']) {
+              if (!body.startsWith(prefix)) continue;
               const rest = body.slice(prefix.length).trim();
               if (rest) {
                 core.info(`Custom release name detected: "${rest}"`);
                 return rest;
               }
+              break;
             }
             core.info('No custom release name in comment.');
             return '';
 
-      - name: Add nightly-build label
+      - name: Add preview-build label
         if: steps.check_access.outputs.result == 'granted'
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.issue.number }}
         run: |
-          gh issue edit "$PR" --add-label "${{ env.NIGHTLY_LABEL }}" --repo "${{ github.repository }}"
+          gh issue edit "$PR" --add-label "${{ env.PREVIEW_LABEL }}" --repo "${{ github.repository }}"
+
+          # Drop the old label as the new one goes on, so a PR never carries
+          # both and "remove the label to stop rebuilding" stays unambiguous.
+          # Removing a label the PR does not have is a no-op; do not let it fail
+          # the run either way.
+          gh issue edit "$PR" --remove-label "${{ env.NIGHTLY_LABEL }}" --repo "${{ github.repository }}" || true
 
       - name: Trigger immediate nightly build
         if: steps.check_access.outputs.result == 'granted'
@@ -181,7 +197,7 @@ jobs:
         run: |
           gh issue comment "$PR" \
             --repo "${{ github.repository }}" \
-            --body $'### 🚀 Nightly Build Triggered\n\nA nightly build has been dispatched for branch **`'"${BRANCH}"$'**\n\n| What | How |\n|------|-----|\n| **This build** | Check the [Actions tab]('"${{ github.server_url }}/${{ github.repository }}/actions/workflows/build-nightly.yml"$') for progress |\n| **Future commits** | Each new push will rebuild after macOS check passes |\n| **Deactivate** | Remove the `nightly-build` label to stop auto-builds |\n\n> The pre-release tag will be updated in-place so the download link stays the same.'
+            --body $'### 🚀 Nightly Build Triggered\n\nA nightly build has been dispatched for branch **`'"${BRANCH}"$'**\n\n| What | How |\n|------|-----|\n| **This build** | Check the [Actions tab]('"${{ github.server_url }}/${{ github.repository }}/actions/workflows/build-nightly.yml"$') for progress |\n| **Future commits** | Each new push will rebuild after macOS check passes |\n| **Deactivate** | Remove the `preview-build` label to stop auto-builds |\n\n> The pre-release tag will be updated in-place so the download link stays the same.'
 
   # ── Derive metadata (branch, tag, names) ────────────────────────────────
   derive:
