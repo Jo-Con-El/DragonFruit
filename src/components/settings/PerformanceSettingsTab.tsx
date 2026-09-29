@@ -6,7 +6,6 @@ import type { SlicingPerformanceSettings } from '@/components/settings/performan
 import { cleanupAllPrintTempArtifacts, cleanupStalePrintTempArtifacts } from '@/features/slicing/tauri/nativeSlicerBridge';
 
 const SLICING_ENGINE_CRATE = 'dragonfruit-slicing-engine';
-const SLICING_ENGINE_VERSION_FALLBACK = '3.2.1';
 
 
 export type SlicingThumbnailRenderSettings = {
@@ -40,7 +39,8 @@ export function PerformanceSettingsTab({
     });
   }, [onThumbnailSettingsChange, thumbnailSettings]);
 
-  const [engineVersion, setEngineVersion] = React.useState(SLICING_ENGINE_VERSION_FALLBACK);
+  // Null until the native side answers; outside Tauri it never does.
+  const [engineVersion, setEngineVersion] = React.useState<string | null>(null);
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -96,7 +96,7 @@ export function PerformanceSettingsTab({
             </div>
             <div>
               <div style={{ color: 'var(--text-muted)' }}>Version</div>
-              <div className="font-semibold" style={{ color: 'var(--text-strong)' }}>{engineVersion}</div>
+              <div className="font-semibold" style={{ color: 'var(--text-strong)' }}>{engineVersion ?? '-'}</div>
             </div>
           </div>
         </div>
