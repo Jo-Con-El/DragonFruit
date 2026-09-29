@@ -514,7 +514,7 @@ export type PluginJobMetadataPayloadDefinition = {
  *
  * Plugins that set `capabilities.fileType = true` must include at least one
  * entry in `ComplexPluginDefinition.fileTypes` and export a `handleFileTypeImport`
- * function from `fileTypeHandlers.ts` (see `plugins/CONTRIBUTING_COMPLEX_PLUGINS.md`).
+ * function from `fileTypeHandlers.ts` (see `docs/dev/plugins-complex-contributing.md`).
  */
 export type PluginFileTypeDefinition = {
     /** File extension including the leading dot, e.g. '.lys'. Must be lowercase. */

@@ -1,6 +1,6 @@
-# dragonfruit-slicing-engine
+# Slicing Engine
 
-Native Rust slicing backend for DragonFruit Desktop (Tauri), currently at **v3.2.3**.
+The native Rust slicing backend for DragonFruit Desktop (Tauri), in `rust/dragonfruit-slicing-engine/`. Its version lives in its `Cargo.toml` and is exposed at runtime as `ENGINE_VERSION`.
 
 This crate is the production slicing engine that converts triangle geometry into printer-ready layer containers. Format output is dispatched through a plugin-driven encoder registry (currently `.nanodlp`, `.ctb`, `.goo`, and others).
 
@@ -57,9 +57,9 @@ pub fn slice_and_rasterize_v3(...)
 
 Primary public contracts live in:
 
-- `src/lib.rs` — crate root, re-exports, `ENGINE_VERSION`
-- `src/types.rs` — `SliceJobV3`, `SliceArtifactV3`, `ProgressCallbackV3`
-- `src/engine.rs` — orchestration, validation, all public entry points, `SlicerV3Error`
+- `rust/dragonfruit-slicing-engine/src/lib.rs` — crate root, re-exports, `ENGINE_VERSION`
+- `rust/dragonfruit-slicing-engine/src/types.rs` — `SliceJobV3`, `SliceArtifactV3`, `ProgressCallbackV3`
+- `rust/dragonfruit-slicing-engine/src/engine.rs` — orchestration, validation, all public entry points, `SlicerV3Error`
 
 ## Module map
 
@@ -124,16 +124,21 @@ Plugin-owned encoders (Elegoo GOO, Anycubic, CTB, etc.) live in `encoders/genera
 
 ## Documentation map
 
-- [`docs/README.md`](docs/README.md) — docs index and module summary
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — design and module boundaries
-- [`docs/API.md`](docs/API.md) — public API and error semantics
-- [`docs/PIPELINE.md`](docs/PIPELINE.md) — execution path details
-- [`docs/ENCODERS.md`](docs/ENCODERS.md) — format registry and encoder traits
-- [`docs/INTEGRATION_TAURI.md`](docs/INTEGRATION_TAURI.md) — Tauri bridge integration
-- [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md) — performance measurement
-- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — common issues and debugging
-- [`docs/DEVELOPMENT_GUIDE.md`](docs/DEVELOPMENT_GUIDE.md) — contributor setup and conventions
-- [`docs/ROADMAP_V3_2.md`](docs/ROADMAP_V3_2.md) — v3.2 planning and design notes
+Read these first:
+
+- [Architecture](architecture.md) — design and module boundaries
+- [Pipeline](pipeline.md) — execution path details
+- [API](api.md) — public API and error semantics
+
+Then, as needed:
+
+- [Encoders](encoders.md) — format registry and encoder traits
+- [Tauri integration](tauri-integration.md) — Tauri bridge integration
+- [Benchmarking](benchmarking.md) — performance measurement
+- [Troubleshooting](troubleshooting.md) — common issues and debugging
+- [Development guide](development-guide.md) — contributor setup and conventions
+
+The v3.2 roadmap is internal and not published: `docs/internal/slicing-engine-v3.2-roadmap.md`.
 
 ## Documentation policy
 

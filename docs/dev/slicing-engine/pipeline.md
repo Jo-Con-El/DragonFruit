@@ -1,4 +1,4 @@
-# Pipeline (V3.1)
+# Pipeline
 
 ## 1) Job validation
 

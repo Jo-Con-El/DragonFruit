@@ -11,7 +11,6 @@ Ported from the TypeScript implementation in `src/volumeAnalysis/IslandScan/` to
 ```text
 rust/dragonfruit-islands/
 ├── Cargo.toml
-├── docs/ISLANDS.md           (this file)
 ├── src/
 │   ├── lib.rs                — Crate root (module declarations)
 │   ├── geometry.rs           — Re-exports from dragonfruit-slicing-engine

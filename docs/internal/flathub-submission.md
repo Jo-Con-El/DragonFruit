@@ -6,17 +6,16 @@ and does not meet Flathub's reproducibility / offline-source requirements.
 
 ## Blockers (must be resolved before opening the submission PR)
 
-- [ ] **GPL-3.0 `LICENCE` file published at repo root.** Flathub rejects
-      submissions without a valid OSS licence file.
-- [ ] **Private submodules public or vendored.** `plugins/ctb`, `plugins/elegoo`,
-      `plugins/sdcp-v3` are currently private (`CTB_DEPLOY` / `ELEGOO_DEPLOY` /
-      `SDCP_V3_DEPLOY` SSH keys in CI). Flathub builders have no SSH access.
-      Either:
-      - Make the three submodule repos public, OR
-      - Vendor their pre-built `.rs`/`.ts` outputs into the main repo as
-        `archive`-type sources in the manifest, OR
-      - Ship a `dragonfruit-core` Flatpak variant without those plugins.
-- [ ] **Public repo**. The main DragonFruit repo must be public.
+All three were checked on 2026-09-30 and no longer block:
+
+- [x] **OSS licence file published at repo root.** Flathub rejects
+      submissions without a valid OSS licence file. `LICENSE` is at the root;
+      it is AGPL-3.0, not the GPL-3.0 this item originally named.
+- [x] **Private submodules public or vendored.** `plugins/ctb`, `plugins/elegoo`
+      and `plugins/sdcp-v3` were private and checked out in CI with per-repo SSH
+      deploy keys, which Flathub builders cannot use. All three are public now,
+      `.gitmodules` points at them over HTTPS, and no workflow uses a deploy key.
+- [x] **Public repo**. The main DragonFruit repo is public.
 
 ## Manifest work needed
 

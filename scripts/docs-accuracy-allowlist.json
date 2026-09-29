@@ -51,7 +51,18 @@
             "satisfiesMinAngleFromHorizontal",
             "SmartPlacementV2",
             "applyTrunkReplacement",
-            "SUPPORT_KINDS"
+            "SUPPORT_KINDS",
+            "updateBranch",
+            "loadFromLychee",
+            "updateKickstand",
+            "setHoveredId",
+            "setHoveredCategory",
+            "transformAllKickstands",
+            "rle_encode_labels",
+            "rle_decode_labels",
+            "z_aa_steps",
+            "z_anti_aliasing",
+            "format_info"
       ],
       "paths": [
             "src/supports/generatedSupportRegistrations.ts",
@@ -70,8 +81,9 @@
             "deliberately removed": "kerf_mm is named in organic-cut-surface-redesign.md precisely to record that it is gone. satisfiesMinAngleFromHorizontal was the flat angle test in the grid attach path and auto-supports.md names it to record that the length-aware allowance replaced it.",
             "aspirational": "page-tsx-refactor-handoff.md is a refactor plan; its symbols name extractions not yet made. packageManager is a package.json key npm has not adopted here.",
             "generated at build time": "the paths are produced by scripts/generate-plugin-registry.mjs and are gitignored (**/generated*), so they are absent from a clean checkout.",
-            "proposed, not built": "island_replay is the name ADR-0025 proposes for a capability not yet folded in; pushToast is named in notifications.md precisely to state that no such API exists.",
+            "proposed, not built": "island_replay is the name ADR-0025 proposes for a capability not yet folded in; pushToast is named in notifications.md precisely to state that no such API exists. format_info() is the trait method docs/internal/cli/new-format-plan.md proposes as one of two options.",
             "removed with the V3 routing": "SmartPlacementV2 is the multi-joint router that SmartPlacementV3 replaced; docs/adr/0028-potential-gradient-pathfinding.md names it because the ADR records the approach it chose and the engine it ran in, and an ADR is history rather than a description of the current code. applyTrunkReplacement is named by docs/internal/backlog.md in an unpublished finding about the trunk replacement flow, which was deleted with it.",
+      "unpublished plans against older code": "docs/internal/cli/gaps-plan.md and wont-do.md, and docs/internal/slicing-engine-v3.2-roadmap.md, are working plans written against the code of their day, kept as the record of what was planned and why. updateBranch, loadFromLychee, updateKickstand, setHoveredId, setHoveredCategory, transformAllKickstands and the rle_*_labels pair were removed or renamed since (kickstands joined the shared support state; islands::rle kept four operations), and z_aa_steps / z_anti_aliasing became the zaa_* fields. Rewriting the plans to today's names would misstate what they said. docs/reference/cli.md, which describes the current code, was corrected instead, so these entries must not be used to excuse a stale name there.",
       "upstream windowing APIs": "PlatformWebview and cef_window_handle_t are tauri and CEF APIs; wl_surface and wl_subsurface are Wayland protocol objects; windowless_rendering_enabled and set_as_windowless belong to the cef crate. ADR-0005 and ADR-0040 cite them to explain why the Linux CEF build embeds through an X11 window id, so they name code we depend on but do not own."
       },
       "_comment_webkit_symbols": "The eight WebKit/JavaScriptCore internals above (javascript_gc_object_count through operationMapHash) are cited by docs/dev/performance-debugging.md as they appear in `sample` output and WebKit's own logs. They belong to the platform, not to this codebase, and will never be found here.",

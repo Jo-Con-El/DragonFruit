@@ -386,7 +386,7 @@ Comprehensive audit of every data-producing operation across Rust, Tauri IPC, an
 | `islands::rasterize` | `rasterize_for_island_scan` | Yes | — |
 | `islands::scan` | `scan_layer` | Yes | — |
 | `islands::tracker` | `IslandTracker::new`, `process_layer`, `get_islands`, `finalize_islands` | All 4 | — |
-| `islands::rle` | `rle_encode`, `rle_decode`, `rle_encode_labels`, `rle_decode_labels`, `rle_intersect_dilated`, `rle_subtract`, `rle_label_components` | `rle_label_components` (via scan) | 6 individual ops |
+| `islands::rle` | `rle_encode`, `rle_intersect_dilated`, `rle_subtract`, `rle_label_components` | `rle_label_components` (via scan) | 3 individual ops |
 | `islands::pipeline` | `run_island_scan` | Yes (island full) | — |
 | `encoders::registry` | `find_encoder`, `supported_output_formats` | Both | — |
 | `raster` | `rasterize_layer`, `rasterize_layer_with_stats` | Via pipeline | Not direct |
@@ -435,16 +435,9 @@ Comprehensive audit of every data-producing operation across Rust, Tauri IPC, an
 | Place on platform | GAP | Requires geometry bbox |
 | Auto-lift Z | GAP | Requires geometry bbox |
 
-### TypeScript Kickstand State (`kickstandStore.ts`)
+### TypeScript Kickstand State
 
-| Operation | CLI Coverage | Extractable |
-|-----------|-------------|-------------|
-| `addKickstand` | GAP | Yes (pure logic) |
-| `updateKickstand` | GAP | Yes (pure logic) |
-| `removeKickstand` | GAP | Yes (pure logic) |
-| `reassignAllKickstandModelIds` | GAP | Yes (pure logic) |
-| `transformKickstandsForModel` | N/A | No (THREE.js matrix) |
-| `transformAllKickstands` | N/A | No (THREE.js matrix) |
+Kickstands moved into the shared support state (`src/supports/state.ts`) with the support-registry refactor, and `kickstandStore.ts` is gone. This audit predates that move and has not been redone for kickstands, so the totals below still count the six store operations it listed then.
 
 ### TypeScript Export Operations
 
@@ -494,7 +487,7 @@ Comprehensive audit of every data-producing operation across Rust, Tauri IPC, an
 These operations require THREE.js geometry in memory and cannot run headlessly:
 
 - `transformSupportsForModel` / `transformAllSupportsForSingleModel` — 3D matrix transforms on support geometry
-- STL/3MF export — THREE.js `STLExporter` / `ThreeMFExporter`
+- STL/3MF export — `STLExporter` from three-stdlib, and the 3MF XML writer in `src/features/export/logic/ExportManager.ts`
 - Raster layer ZIP — JavaScript rasterization with THREE.js geometry
 - Auto-lift / place-on-platform — requires geometry bounding box computation
 - File dialogs — `pick_open_files`, `pick_save_path`

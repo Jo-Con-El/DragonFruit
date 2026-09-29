@@ -432,7 +432,7 @@ Before requesting review:
 - [ ] If using extra cargo crates: `requiredCrates.toml` exists (if needed) and is valid TOML with semver versions
 - [ ] Generated registries are up-to-date and committed
 - [ ] No vendor hardcoding leaked into generic app routes/registries
-- [ ] Docs updated (`plugins/README.md` + plugin-local README)
+- [ ] Docs updated ([Plugin Framework](plugins-framework.md) + plugin-local README)
 - [ ] Validation commands pass
 
 ---
@@ -451,7 +451,7 @@ Reviewers will evaluate:
 
 ## 11) Useful references
 
-- Framework overview: `plugins/README.md`
+- Framework overview: [Plugin Framework](plugins-framework.md)
 - Athena reference implementation: `plugins/athena/README.md`
 - Generic plugin network route: `src/app/api/network/plugin/route.ts`
 - Plugin settings UI: `src/components/settings/PluginsSettingsTab.tsx`

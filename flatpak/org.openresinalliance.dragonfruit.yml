@@ -9,7 +9,7 @@
 #     node scripts/tauri-build.mjs   # auto-stages CEF + builds Flatpak
 #
 # The hermetic-build variant (required for Flathub) is tracked separately
-# in flatpak/FLATHUB.md.
+# in docs/internal/flathub-submission.md.
 
 app-id: org.openresinalliance.dragonfruit
 runtime: org.freedesktop.Platform

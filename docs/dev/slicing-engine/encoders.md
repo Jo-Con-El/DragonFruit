@@ -36,7 +36,7 @@ Common operations:
 
 ## Generated wiring
 
-`src/encoders/generated_plugin_encoders.rs` is generated. Do not manually edit it.
+`rust/dragonfruit-slicing-engine/src/encoders/generated_plugin_encoders.rs` is generated. Do not manually edit it.
 
 Plugin registry scripts own this artifact and should be rerun when plugin encoder metadata changes.
 

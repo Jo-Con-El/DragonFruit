@@ -196,7 +196,7 @@ Capability/file mismatches intentionally fail generation.
 
 If you’re adding executable plugin behavior, continue in:
 
-- `plugins/CONTRIBUTING_COMPLEX_PLUGINS.md`
+- [Contributing Complex Plugins](plugins-complex-contributing.md)
 
 If you’re adding Athena-specific behavior, see:
 

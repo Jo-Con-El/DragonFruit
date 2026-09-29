@@ -1,4 +1,12 @@
-# Thumbnailer support in the Flatpak build — decision record
+---
+issue: 136
+kind: decision
+date: 2026-04-17
+---
+
+# ADR-0041: The Flatpak ships no file-manager thumbnailer
+
+**Status**: accepted
 
 ## Question
 
@@ -62,7 +70,7 @@ long-standing limitation (flatpak/flatpak#2238, xdg-desktop-portal#1025).
 
 ## Recommendation
 
-Document in `flatpak/README.md` (done):
+Document in the Flatpak guide, [`docs/dev/flatpak.md`](../dev/flatpak.md) (done):
 
 > The Flatpak does not install a file-manager thumbnailer for `.voxl` files.
 > This is a Flatpak sandbox limitation — host file managers cannot cross the

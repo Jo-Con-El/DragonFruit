@@ -1,8 +1,8 @@
-# API Reference (V3.1)
+# API Reference
 
 ## Public re-exports
 
-From `src/lib.rs`:
+From `rust/dragonfruit-slicing-engine/src/lib.rs`:
 
 - `slice_with_progress_v3`
 - `slice_with_progress_v3_to_path`

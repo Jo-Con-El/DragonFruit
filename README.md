@@ -20,7 +20,7 @@ Unless a subdirectory or submodule states otherwise, DragonFruit content in this
   - [Variant 1: Frontend development (Next.js)](#variant-1-frontend-development-nextjs)
   - [Variant 2: Desktop development (Tauri + Rust)](#variant-2-desktop-development-tauri--rust)
   - [Variant 3: Production build & bundling](#variant-3-production-build--bundling)
-- [Localization (i18n)](LOCALE.md)
+- [Localization (i18n)](docs/dev/localization.md)
 - [Project structure](#project-structure)
 - [Contributing](#contributing)
 - [License](#license)
@@ -93,7 +93,7 @@ For release-style builds and bundles:
 
 ## Localization (i18n)
 
-See [LOCALE.md](LOCALE.md) for details on DragonFruit's internationalization
+See the [localization guide](docs/dev/localization.md) for details on DragonFruit's internationalization
 setup, including supported locales, catalog structure, workflow commands, and
 runtime language selection.
 

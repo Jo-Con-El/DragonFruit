@@ -105,7 +105,7 @@ fn write_3mf_contains_correct_vertex_count() {
 
 ### 1C. Benchmark CLI Command
 
-**Observe:** `benchmark::run_benchmark_v3(cfg)` exists in `benchmark.rs:118`.
+**Observe:** `benchmark::run_benchmark_v3(cfg)` exists in `benchmark.rs`.
 Takes `BenchmarkConfigV3`, returns `BenchmarkResultV3`.
 
 **Test:** Not needed for wrapper — the benchmark module has its own tests.
@@ -231,7 +231,7 @@ support straighten-segment <voxl> --id <segment-id> [--json]
 
 ### 3A. Group / Ungroup
 
-**Observe:** `useSceneCollectionManager.ts:1879` has `groupModels(modelIds, groupName)`.
+**Observe:** `useSceneCollectionManager.ts` has `groupModels(modelIds, groupName)`.
 It sets `groupId` and `groupName` on each model's `LoadedModel` record. Pure state.
 
 In VOXL: models don't have an explicit group field in the spec. But the CLI can use
@@ -257,7 +257,7 @@ scene list-groups <voxl> [--json]
 
 ### 3B. Center XY
 
-**Observe:** `useModelTransform.ts:82` — `centerXY` sets position X=0, Y=0, preserves Z.
+**Observe:** `useModelTransform.ts` — `centerXY` sets position X=0, Y=0, preserves Z.
 
 For CLI: set `model.transform.position.x = 0`, `model.transform.position.y = 0`.
 
@@ -386,5 +386,5 @@ npx tsx scripts/dragonfruit-ts-cli.ts scene arrange /tmp/test.voxl --mesh-dir .
 npx tsx scripts/dragonfruit-ts-cli.ts scene slice /tmp/test.voxl --o /tmp/test.nanodlp --mesh-dir .
 ```
 
-After all phases, update `docs/CLI.md` coverage table — target: **91/118 (77%)** covered
+After all phases, update the coverage table in `docs/reference/cli.md` — target: **91/118 (77%)** covered
 (up from 54/118 = 46%).

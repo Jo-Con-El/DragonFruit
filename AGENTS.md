@@ -119,7 +119,9 @@ is the index and the `mkdocs.yml` nav is the map.
 
 Most cross-cutting systems are documented: history/undo-redo, registration
 seams, state stores, config schemas, the Tauri IPC bridge, hotkeys, plugins,
-experiments, and the support system. Read the relevant page before grepping the
+experiments, the support system, and the Rust side: the slicing engine
+(`docs/dev/slicing-engine/`), island detection, the RTSP relay and the OS
+thumbnailers. Read the relevant page before grepping the
 codebase — it names the exact files and invariants you would otherwise spend
 time re-deriving. Only fall back to source reading when the docs don't answer
 the question.
@@ -132,8 +134,15 @@ the question.
 | `CONTEXT.md` | Domain glossary — use its terms, not synonyms | no |
 | `docs/dev/`, `docs/reference/` | Contracts, invariants, frameworks | yes |
 | `docs/adr/` | Decisions and the reasoning behind them | yes |
-| `docs/internal/` | Working inboxes, agent instructions, research | **no** |
+| `docs/internal/` | Working inboxes, agent instructions, research, plans | **no** |
 | `src/**/AGENTS.md` | Directory-scoped notes. Gitignored — local working aids, may not exist | no |
+
+Documentation goes under `docs/`, never beside the code it describes. The only
+Markdown elsewhere is what has to be elsewhere: the root files (`README.md`,
+`AGENTS.md`/`CLAUDE.md`, `CONTEXT.md`, `CODE_OF_CONDUCT.md`), GitHub's issue
+templates and instructions under `.github/`, each plugin's own `README.md` (the
+app serves `plugins/<id>/README.md` to the Plugin Studio at runtime), and the
+licence or provenance notes beside a separately licensed or vendored crate.
 
 `docs/internal/` is excluded from the MkDocs build (`exclude_docs`) but is
 versioned and reviewed like everything else — see `docs/internal/README.md`.

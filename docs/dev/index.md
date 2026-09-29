@@ -17,10 +17,16 @@ Internals of DragonFruit, for people changing them. Start with [Architecture Ove
 | Support a new printer or format | [Plugin Framework](plugins-framework.md), [Complex Plugin Contributing](plugins-complex-contributing.md), [Formats](formats.md) |
 | Change automatic support placement | [Auto-Supports](auto-supports.md) |
 | Add a support type | [Adding a New Support Type](support-type-extension.md), [Support System](support-system.md) |
-| Touch slicing or the raster pipeline | [ADR-0036](../adr/0036-stream-ctb-layer-payloads-to-disk.md), and the 3DAA vocabulary in `CONTEXT.md` |
+| Change support hover, selection or snapping | [Support Interaction](support-interaction.md) |
+| Work on island detection | [Island Detection](island-detection.md) |
+| Touch slicing or the raster pipeline | [Slicing Engine](slicing-engine/index.md), [ADR-0036](../adr/0036-stream-ctb-layer-payloads-to-disk.md), and the 3DAA vocabulary in `CONTEXT.md` |
+| Measure slicing performance | [Benchmark Suite](slicing-benchmarks.md), [Slicing Engine Benchmarking](slicing-engine/benchmarking.md) |
+| Drive DragonFruit from a script | [Command-Line Interface](../reference/cli.md) |
 | Add a config file | [Config Schemas](config-schemas.md) |
 | Persist something | [Data Storage](data-storage.md), [VOXL Format Spec](voxl-format-spec.md) |
-| Cut a release | [Release Process](releases.md) |
+| Cut a release | [Release Process](releases.md), [Flatpak Packaging](flatpak.md) |
+| Change OS file thumbnails | [OS Thumbnails](voxl-thumbnail/index.md) |
+| Add or translate a string | [Localization](localization.md) |
 | Write or change docs | [Contributing](contributing.md) |
 
 ## Ground rules

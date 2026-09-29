@@ -1,8 +1,8 @@
-# Benchmarking V3.1
+# Benchmarking
 
 ## What benchmark covers
 
-`src/benchmark.rs` runs synthetic slicing workloads through core pipeline stages:
+`rust/dragonfruit-slicing-engine/src/benchmark.rs` runs synthetic slicing workloads through core pipeline stages:
 
 - geometry generation
 - indexing
@@ -23,7 +23,7 @@
 
 ## CLI usage
 
-Benchmark binary: `src/bin/benchmark.rs`
+Benchmark binary: `rust/dragonfruit-slicing-engine/src/bin/benchmark.rs`
 
 Key flags:
 

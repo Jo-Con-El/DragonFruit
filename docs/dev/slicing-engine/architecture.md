@@ -1,4 +1,4 @@
-# Architecture (v3.2)
+# Architecture
 
 ## Intent
 

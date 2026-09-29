@@ -12,10 +12,10 @@ install path alongside the existing `.deb`, `.rpm`, and `.AppImage` bundles.
   namespace isolation.
 - **No thumbnailer**: the file-manager thumbnailer is intentionally not
   included — host file managers cannot execute binaries inside a Flatpak
-  sandbox. See `THUMBNAILER.md` for the investigation. Users wanting file
+  sandbox. See [ADR-0041](../adr/0041-flatpak-thumbnailer.md) for the investigation. Users wanting file
   manager thumbnails should install the `.deb`/`.rpm`.
 
-## Files in this directory
+## Files in `flatpak/`
 
 | File | Purpose |
 |------|---------|
@@ -24,8 +24,6 @@ install path alongside the existing `.deb`, `.rpm`, and `.AppImage` bundles.
 | `org.openresinalliance.dragonfruit.desktop` | Desktop entry |
 | `staging/dragonfruit-mime.xml` | MIME registrations for every declared file type (staged from the generated payload) |
 | `launcher.sh` | `/app/bin/dragonfruit` wrapper — sets CEF flags and `LD_LIBRARY_PATH` |
-| `FLATHUB.md` | Flathub submission checklist (blocked on GPL-3.0 LICENCE publication) |
-| `THUMBNAILER.md` | Thumbnailer-in-Flatpak investigation notes |
 
 ## Building the bundle
 
@@ -122,7 +120,7 @@ xdg-desktop-portal file chooser; the `rfd` crate detects Flatpak automatically.
 ## Known limitations
 
 - **No file-manager thumbnails**: dropping the `dragonfruit-voxl-thumbnailer`
-  binary; see `THUMBNAILER.md`.
+  binary; see [ADR-0041](../adr/0041-flatpak-thumbnailer.md).
 - **No USB/serial printer support**: DragonFruit talks to printers over
   HTTP/LAN only, so this is not a regression — but worth knowing if that
   changes upstream.
@@ -131,7 +129,7 @@ xdg-desktop-portal file chooser; the `rfd` crate detects Flatpak automatically.
 
 ## Related docs
 
-- `FLATHUB.md` — submission checklist and blockers
-- `THUMBNAILER.md` — thumbnailer investigation
+- `docs/internal/flathub-submission.md` — submission checklist and blockers (internal, not published)
+- [ADR-0041](../adr/0041-flatpak-thumbnailer.md) — thumbnailer investigation
 - Root `scripts/tauri-build.mjs` — Linux build path with auto Flatpak post-build
 - Root `scripts/bundle-cef-libs.sh` — CEF library staging
