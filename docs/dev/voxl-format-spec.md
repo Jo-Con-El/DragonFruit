@@ -63,6 +63,13 @@ Supported V1 mesh encodings:
 
 For `base64-rle-u8`, decoded size must equal `uncompressedSizeBytes`.
 
+Compressed envelope profile fields:
+
+- `compression.kind = "document-json-utf8"`
+- `compression.encoding`: `base64-raw`, `base64-rle-u8` or `base64-zlib`
+- `compression.uncompressedSizeBytes`
+- `compression.payloadBase64`
+
 ## V2 contract (binary chunks)
 
 V2 layout:
@@ -246,6 +253,12 @@ Extensions location:
 
 Unknown extension keys should be ignored.
 
+## Implementation notes
+
+- Export writes V2 by default. Mesh bytes go raw into `MESH` chunks with per-chunk zlib, with no base64, which makes files roughly 60-65% smaller than V1 for typical scenes and faster to write and read.
+- The V2 reader hands callers pre-decoded mesh bytes through `ParsedVoxlResult.meshBytes`.
+- The V1 import path is fully preserved: base64 decoding, RLE and SHA-256 validation.
+
 ## Validation expectations
 
 Readers should enforce:
@@ -264,4 +277,3 @@ Readers should enforce:
 - `src/features/scene/voxl/types.ts`
 - `src/hooks/useStlGeometry.ts`
 - `docs/dev/formats.md`
-- `1_Documentation/VOXL_FORMAT_SPEC.md` (full historical revision text)
