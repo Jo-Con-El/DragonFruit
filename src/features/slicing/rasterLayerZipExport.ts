@@ -26,6 +26,13 @@ import { resolveSlicingFormatDefinition } from '@/features/slicing/formats/regis
 import { quaternionFromGlobalEuler } from '@/utils/rotation';
 import { JOINT_DIAMETER_OFFSET_MM } from '@/supports/constants';
 
+// The app, not the engine: format encoders stamp this as the slicer that made the
+// file. Left out when unknown (e.g. under tests) so no encoder writes a guess.
+const SLICER_IDENTITY = {
+  name: 'DragonFruit',
+  version: process.env.NEXT_PUBLIC_APP_VERSION || undefined,
+};
+
 const MAX_CANVAS_PIXELS = 24_000_000;
 const DEFAULT_MESH_CHUNK_TARGET_BYTES = 64 * 1024 * 1024;
 const MIN_MESH_CHUNK_TARGET_BYTES = 16 * 1024 * 1024;
@@ -2166,6 +2173,7 @@ async function rasterizeLayerStack(options: RasterLayerZipExportOptions): Promis
       'JS fallback generates solid cross-sections via plane intersections and scanline fill.',
       'Used when plugin-owned WASM encoding path is unavailable or fails.',
     ],
+    slicer: SLICER_IDENTITY,
     printer: {
       id: options.printerProfile.id,
       name: options.printerProfile.name,
@@ -2373,6 +2381,7 @@ export async function buildSolidSliceMeshForWasm(options: RasterLayerZipExportOp
       'Solid cross-sections are generated in Rust/WASM from transformed triangle meshes.',
       'Container packaging is encoded by plugin-owned format encoders.',
     ],
+    slicer: SLICER_IDENTITY,
     printer: {
       id: options.printerProfile.id,
       name: options.printerProfile.name,
